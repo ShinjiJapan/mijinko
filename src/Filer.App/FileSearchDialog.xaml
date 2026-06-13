@@ -2,9 +2,9 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         WindowStartupLocation="CenterOwner"
-        Width="640" Height="520" MinWidth="520" MinHeight="360"
+        Width="660" Height="640" MinWidth="540" MinHeight="480"
         ResizeMode="CanResizeWithGrip" ShowInTaskbar="False"
-        Background="{DynamicResource Surface.Background}" Foreground="{DynamicResource Fg.Primary}" Title="ファイル検索">
+        Background="{DynamicResource Surface.Background}" Foreground="{DynamicResource Fg.Primary}" Title="ファイル検索 / 内容検索(grep)">
     <Window.Resources>
         <!-- テーマ追従の基本コントロール(IncrementalSearchDialog と同じ見た目) -->
         <Style TargetType="Button">
@@ -69,6 +69,14 @@
                 <Label Content="検索ファイル名(_F)" Target="{Binding ElementName=Query}"/>
                 <TextBox x:Name="Query" FontSize="14"/>
                 <CheckBox x:Name="RegexCheck" Content="正規表現(_E)" Margin="0,6,0,0"/>
+                <Label Content="内容(grep)(_O)" Target="{Binding ElementName=ContentQuery}" Margin="0,10,0,0"/>
+                <TextBox x:Name="ContentQuery" FontSize="14"
+                         ToolTip="入力すると内容検索(grep)になります。「検索ファイル名」は対象ファイルの絞り込みに使われます。"
+                         TextChanged="ContentQuery_TextChanged"/>
+                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                    <CheckBox x:Name="ContentRegexCheck" Content="内容を正規表現(_R)" IsEnabled="False"/>
+                    <CheckBox x:Name="ContentCaseCheck" Content="大文字小文字を区別(_I)" Margin="14,0,0,0" IsEnabled="False"/>
+                </StackPanel>
                 <Label Content="基準ディレクトリ(_B)" Target="{Binding ElementName=BaseDir}" Margin="0,10,0,0"/>
                 <TextBox x:Name="BaseDir" FontSize="13"/>
                 <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
@@ -105,7 +113,12 @@
                        Foreground="{DynamicResource Fg.Subtle}" TextTrimming="CharacterEllipsis"/>
         </DockPanel>
 
-        <ListBox x:Name="ResultsList" Grid.Row="2"
+        <Grid Grid.Row="2">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+        <ListBox x:Name="ResultsList" Grid.Row="0"
                  Background="{DynamicResource Input.Background}" Foreground="{DynamicResource Fg.Primary}"
                  BorderBrush="{DynamicResource Border.Default}" FontFamily="Consolas, MS Gothic" FontSize="13"
                  HorizontalContentAlignment="Stretch"
@@ -146,5 +159,26 @@
                 </DataTemplate>
             </ListBox.ItemTemplate>
         </ListBox>
+
+            <!-- 内容検索(grep)時のみ表示: 選択ファイルのマッチ行プレビュー -->
+            <DockPanel x:Name="PreviewPanel" Grid.Row="1" Visibility="Collapsed" Margin="0,8,0,0">
+                <TextBlock DockPanel.Dock="Top" Text="マッチ行(選択ファイル)"
+                           Foreground="{DynamicResource Fg.Secondary}" Margin="2,0,0,2"/>
+                <ListBox x:Name="PreviewList" Height="150"
+                         Background="{DynamicResource Input.Background}" Foreground="{DynamicResource Fg.Primary}"
+                         BorderBrush="{DynamicResource Border.Default}" FontFamily="Consolas, MS Gothic" FontSize="12"
+                         HorizontalContentAlignment="Stretch"
+                         VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+                         ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                         MouseDoubleClick="PreviewList_MouseDoubleClick">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="Foreground" Value="{DynamicResource Fg.Primary}"/>
+                            <Setter Property="Padding" Value="4,0"/>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                </ListBox>
+            </DockPanel>
+        </Grid>
     </Grid>
 </Window>
