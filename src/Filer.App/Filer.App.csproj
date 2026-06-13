@@ -4,6 +4,13 @@
     <ProjectReference Include="..\Filer.Core\Filer.Core.csproj" />
   </ItemGroup>
 
+  <!-- カスタム Main(Program)を使うため、App.xaml の自動生成 Main を無効化する。
+       App.xaml は Page としてコンパイルし InitializeComponent だけを生成させる。 -->
+  <ItemGroup>
+    <ApplicationDefinition Remove="App.xaml" />
+    <Page Include="App.xaml" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4022.49" />
@@ -22,10 +29,12 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <!-- カスタムエントリポイント(mft-search-server 引数でヘッドレス起動するため) -->
+    <StartupObject>Filer.App.Program</StartupObject>
     <!-- exe・エクスプローラー表示用のアプリアイコン -->
     <ApplicationIcon>Assets\appicon.ico</ApplicationIcon>
     <!-- DPI 認識を PerMonitorV2 に宣言(非100%モニターでの文字ぼやけ防止) -->

@@ -726,9 +726,33 @@ public partial class MainWindow : Window
     /// 「転送して閉じる」=結果をアクティブペインへ仮想一覧として表示、
     /// 「ジャンプ」=選択項目のあるフォルダーへ移動してカーソルを合わせる。
     /// </summary>
+    /// <summary>非管理者起動時のみ生成する高速検索(昇格ヘルパー)プロキシ。管理者起動なら null。</summary>
+    private ElevatedSearchProxy? _searchProxy;
+    private bool _searchProxyInitialized;
+
+    /// <summary>
+    /// 高速検索プロキシを取得する(非管理者起動時のみ)。常駐ヘルパーを温存するため使い回す。
+    /// </summary>
+    private ElevatedSearchProxy? GetOrCreateSearchProxy()
+    {
+        if (!_searchProxyInitialized)
+        {
+            _searchProxyInitialized = true;
+            _searchProxy = IsRunningAsAdministrator() ? null : new ElevatedSearchProxy();
+        }
+        return _searchProxy;
+    }
+
+    private static bool IsRunningAsAdministrator()
+    {
+        using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+        return new System.Security.Principal.WindowsPrincipal(identity)
+            .IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+    }
+
     private void ShowFileSearchDialog()
     {
-        var dialog = new FileSearchDialog(SearchBaseDirectory()) { Owner = this };
+        var dialog = new FileSearchDialog(SearchBaseDirectory(), GetOrCreateSearchProxy()) { Owner = this };
         dialog.ShowDialog();
 
         if (dialog.JumpTarget is { } target)
@@ -984,6 +1008,7 @@ public partial class MainWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         _terminalPanel?.CloseAll();
+        _searchProxy?.Dispose();   // パイプ閉鎖 → 常駐ヘルパーが自己終了する
         base.OnClosed(e);
     }
 

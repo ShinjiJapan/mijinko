@@ -27,6 +27,9 @@ public partial class FileSearchDialog : Window
     private Task? _searchTask;
     private IReadOnlyList<FileEntry> _results = Array.Empty<FileEntry>();
 
+    /// <summary>非管理者起動時の高速検索(昇格ヘルパー)。管理者起動なら null(ボタンも出さない)。</summary>
+    private readonly ElevatedSearchProxy? _elevatedProxy;
+
     /// <summary>検索結果(検索完了時は相対パス順)。</summary>
     public IReadOnlyList<FileEntry> Results => _results;
 
@@ -42,11 +45,15 @@ public partial class FileSearchDialog : Window
     /// <summary>最後に実行した検索の基準ディレクトリ(転送時の ".." の戻り先)。</summary>
     public string SearchedBaseDirectory { get; private set; } = string.Empty;
 
-    public FileSearchDialog(string initialBaseDirectory)
+    public FileSearchDialog(string initialBaseDirectory, ElevatedSearchProxy? elevatedProxy = null)
     {
         InitializeComponent();
         BaseDir.Text = initialBaseDirectory;
         ResultsList.ItemsSource = _items;
+        _elevatedProxy = elevatedProxy;
+        // 非管理者起動(proxy あり)のときだけ高速検索ボタンを出す。
+        if (elevatedProxy is not null)
+            FastSearchButton.Visibility = Visibility.Visible;
         _flushTimer = new DispatcherTimer(DispatcherPriority.Background)
         {
             Interval = TimeSpan.FromMilliseconds(150),
@@ -64,7 +71,15 @@ public partial class FileSearchDialog : Window
 
     // ---- 検索の実行 ----
 
-    private async void Search_Click(object sender, RoutedEventArgs e)
+    private async void Search_Click(object sender, RoutedEventArgs e) => await StartSearchAsync(elevated: false);
+
+    private async void FastSearch_Click(object sender, RoutedEventArgs e) => await StartSearchAsync(elevated: true);
+
+    /// <summary>
+    /// 検索を開始する。<paramref name="elevated"/>=true なら昇格ヘルパー経由(高速検索ボタン)、
+    /// false なら通常どおりインプロセスで検索する(検索開始ボタン)。
+    /// </summary>
+    private async Task StartSearchAsync(bool elevated)
     {
         var baseDir = BaseDir.Text.Trim();
         if (!Directory.Exists(baseDir))
@@ -92,11 +107,11 @@ public partial class FileSearchDialog : Window
             IncludeDirectories = DirCheck.IsChecked == true,
             SearchArchives = ArchiveCheck.IsChecked == true,
         };
-        _searchTask = RunSearchAsync(options);
+        _searchTask = RunSearchAsync(options, elevated);
         await _searchTask;
     }
 
-    private async Task RunSearchAsync(FileSearchOptions options)
+    private async Task RunSearchAsync(FileSearchOptions options, bool elevated)
     {
         var cts = _cts = new CancellationTokenSource();
         SearchedBaseDirectory = options.BaseDirectory;
@@ -112,13 +127,25 @@ public partial class FileSearchDialog : Window
         {
             // onBatch はワーカースレッドから並行に呼ばれる。ここでは溜めるだけにして、
             // UI への反映は DispatcherTimer がまとめて行う(数十万件でも UI を固めない)。
-            var result = await Task.Run(() => FileSearcher.SearchWithInfo(options, cts.Token,
-                batch => { lock (_pendingGate) _pending.AddRange(batch); }));
+            void Collect(IReadOnlyList<FileEntry> batch)
+            {
+                lock (_pendingGate) _pending.AddRange(batch);
+            }
+
+            // elevated=高速検索は昇格ヘルパー経由で MFT 索引を使う。それ以外はインプロセス走査。
+            var result = elevated
+                ? await _elevatedProxy!.SearchAsync(options, Collect, cts.Token)
+                : await Task.Run(() => FileSearcher.SearchWithInfo(options, cts.Token, Collect));
             _results = result.Entries;
             // どのエンジンで検索したか(MFT が使えない理由を含む)を明示する。
             EngineText.Text = result.Engine == FileSearchEngine.MftIndex
                 ? result.EngineNote ?? "MFT索引"
                 : result.EngineNote ?? "通常走査";
+        }
+        catch (ElevationDeclinedException ex)
+        {
+            // UAC 拒否。ボタンは残し、理由だけ表示する(勝手な通常走査フォールバックはしない)。
+            ShowError(ex.Message);
         }
         catch (Exception ex)
         {

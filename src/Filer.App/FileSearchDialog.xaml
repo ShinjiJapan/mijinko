@@ -18,7 +18,8 @@
                         <Border x:Name="Bd" Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="3"
                                 Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              RecognizesAccessKey="True"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
@@ -84,6 +85,12 @@
                 <Button Content="閉じる(_C)" Width="124" Margin="0,6,0,0" IsCancel="True"/>
                 <Button x:Name="JumpButton" Content="ジャンプ(_J)" Width="124" Margin="0,6,0,0"
                         IsEnabled="False" Click="Jump_Click"/>
+                <!-- 非管理者起動時のみ表示。MFT 直読みの高速検索を昇格ヘルパー経由で行う。 -->
+                <Button x:Name="FastSearchButton" Width="124" Margin="0,14,0,0"
+                        Visibility="Collapsed" Click="FastSearch_Click"
+                        ToolTip="管理者権限の常駐ヘルパーで MFT 索引を使い高速検索します(初回のみ UAC 承認)">
+                    <TextBlock Text="高速検索(管理者権限が必要)(_G)" TextWrapping="Wrap" TextAlignment="Center"/>
+                </Button>
             </StackPanel>
         </Grid>
 
