@@ -21,7 +21,7 @@ Windows専用。**WPF + C#/.NET 8**。VSCode開発前提(XAMLは手書き、`dot
 - `FavoritesStore`+`FavoriteNode(Path,Label,Children?)` — お気に入り**階層ツリー**(項目=Path+Label/グループ=Label+Children)のJSON永続化。グループは「仕事/CLI」形式のグループパス指定(自動作成・同名統合・名前に/不可)、項目パスはツリー全体で重複排除。GetTree/GetGroupPaths/Add(path,label,group)→bool/Update(old,new,label,group)(重複先は無操作)/Remove/RenameGroup→bool/RemoveGroup/JoinGroup(static)。旧形式(パス文字列配列・フラットオブジェクト配列)は読込時ルート直下項目として自動移行し次回Saveで新形式へ。日本語は非エスケープ保存(UnsafeRelaxedJsonEscaping)。詳細は `mem:features-drive-and-favorites`。
 - `HistoryStore` — 開いたフォルダー履歴(MRU)のJSON永続化。`Add(path)`(既存は先頭へ移動・大小無視・上限超過で末尾破棄・空無視)/`GetAll()`(新しい順)。既定上限50件。`%APPDATA%\Filer\history.json`。
 - `DriveLister`/`DriveItem`/`IDriveProvider` — ドライブ列挙。
-- `FilePreview`(static)+`PreviewKind`{None,Image,Text,Markdown,Pdf} — 拡張子→プレビュー種別。.md/.markdown=Markdown、.pdf=Pdf(WebView2組み込みビューア)。
+- `FilePreview`(static)+`PreviewKind`{None,Image,Text,Markdown,Pdf,Html} — 拡張子→プレビュー種別。.md/.markdown=Markdown、.pdf=Pdf(WebView2組み込みビューア)、.html/.htm/.xhtml/.mht/.mhtml/.svg=Html(WebView2レンダリング。S キーでソース表示と切替)。
 - `TerminalProfiles`(static)+`TerminalProfile`{Name,ExePath,Arguments} — 利用可能シェル検出(PowerShell/PowerShell 7/コマンド プロンプト/Git Bash。既知インストール先を探索、fileExists差替でテスト可。先頭=既定シェル)。
 - `TerminalPreferenceStore`+`TerminalPreference`{LastProfileName} — 前回開いたシェル種別名を`%APPDATA%\Filer\terminal-prefs.json`へ永続化(破損時null)。次回T/＋の既定シェルに使う。テスト4件。
 - `ConPtySession` — Windows疑似コンソール(ConPTY/CreatePseudoConsole)で1シェルプロセスを実行。Output(UTF-8逐次デコード、VT込み)/Exited(残出力処理後に発火)イベント、WriteInput/Resize/Dispose(強制終了)。**STARTF_USESTDHANDLES+null stdハンドル必須**=コンソール親から起動時に親コンソールへ出力が漏れる問題の遮断(Windows Terminal同様の対策。これが無いとテスト/VSCodeターミナル配下で出力消失)。終了時は出力が200ms静かになるまで(最大2秒)待ってからClosePseudoConsole(早すぎると最終出力が落ちる)。
@@ -94,8 +94,8 @@ Tab:ペイン切替 / Ctrl+T:新タブ(現在フォルダ複製) / Ctrl+W:タブ
 
 ## 注意 / 未実装
 - serenaの対象言語は `csharp`(.serena/project.yml に明示設定済み。以前の python 誤検出は修正済み)。
-- Markdownプレビュー: WebView2ランタイム(Win11標準同梱)が必要。mermaid.jsは同梱でオフライン動作。大きな図は等倍表示＋スクロール、図ごとのツールバーで拡大/縮小/全画面。
-- ZIP書庫: ナビゲーション+読み取り操作(コピー抽出/画像・テキスト・Markdownプレビュー)対応。**新規ZIP圧縮(Xキー、`ZipArchiver`)対応**。既存書庫の書き換え系とnested zipは非対応(明示メッセージで拒否)。
+- Markdown/HTMLプレビュー: WebView2ランタイム(Win11標準同梱)が必要。mermaid.jsは同梱でオフライン動作。大きな図は等倍表示＋スクロール、図ごとのツールバーで拡大/縮小/全画面。HTML/SVG等(Html種別)は`PreviewWindow.LoadHtmlAsync`が実ファイルの所在フォルダーを仮想ホストにマップして描画(相対参照CSS/画像/JSも解決)。Markdown/HtmlはSキーでレンダリング⇄ソース表示を切替(ヘッダーに[ソース]表示)。PDFと同様WebViewへフォーカスを移さず、↑↓/PgUp/PgDn/Home/EndはDevTools経由(`ScrollPdf`)でスクロール、Esc/Enterで終了。
+- ZIP書庫: ナビゲーション+読み取り操作(コピー抽出/画像・テキスト・Markdown・HTMLプレビュー)対応。書庫内HTMLは単体ファイルとして作業フォルダーへ展開して表示(相対参照CSS/画像は再現しない)。**新規ZIP圧縮(Xキー、`ZipArchiver`)対応**。既存書庫の書き換え系とnested zipは非対応(明示メッセージで拒否)。
 - タブ: 各ペインで複数タブの追加(Ctrl+T/＋)/削除(Ctrl+W/×。最後の1枚は残す)/切替(Ctrl+←/→/クリック)。タブ構成(全タブのパス+アクティブ位置)はセッション保存で永続化し次回起動時に復元(実在フォルダーのみ)。
 - フォルダー履歴: フォルダー移動のたびに`HistoryStore`へ記録(最大50件・MRU・永続化)。Hキーで一覧表示しアクティブ側を移動。
 - 設定(Z): タブ=キー割り当て/外部ツール/外観/**確認**。`%APPDATA%\Filer\settings.json`(キーは既定と異なる操作のみ差分保存)。設定UIはキャプチャ方式(押したキーをそのまま割り当て)。

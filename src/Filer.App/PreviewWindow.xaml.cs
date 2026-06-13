@@ -25,6 +25,12 @@ public partial class PreviewWindow : Window
     private readonly FrameworkElement _paneRegion;
     private PreviewKind _kind;
     private bool _isImage;
+    // Markdown/Html を S キーでソース(テキスト)表示に切り替えているか。
+    private bool _sourceMode;
+    // WebView2 の初期化(メッセージ購読)済みか。
+    private bool _webViewReady;
+    // 仮想ホストにフォルダーをマップ済みか(レンダリング対象が変わるたびに張り替える)。
+    private bool _hostMapped;
     /// <summary>表示形態(F1 / F で 全画面 ⇄ ペイン領域 をトグル)。</summary>
     private enum PreviewView { Maximized, PaneRegion }
     private PreviewView _view = PreviewView.Maximized;
@@ -57,14 +63,23 @@ public partial class PreviewWindow : Window
             return;
         }
         if (kind == PreviewKind.Markdown)
-            _ = LoadMarkdownAsync(path);
+        {
+            if (_sourceMode) LoadText(path); else _ = LoadMarkdownAsync(path);
+        }
+        else if (kind == PreviewKind.Html)
+        {
+            if (_sourceMode) LoadText(path); else _ = LoadHtmlAsync(path);
+        }
         else if (kind == PreviewKind.Pdf)
             _ = LoadPdfAsync(path);
         else if (kind == PreviewKind.Text)
             LoadText(path);
 
-        InfoText.Text = Path.GetFileName(path);
-        Title = $"プレビュー — {Path.GetFileName(path)}";
+        var name = Path.GetFileName(path);
+        InfoText.Text = _sourceMode && (kind == PreviewKind.Markdown || kind == PreviewKind.Html)
+            ? $"{name}  [ソース]"
+            : name;
+        Title = $"プレビュー — {name}";
     }
 
     /// <summary>パス(実ファイル/書庫内)から凍結済みビットマップを読み込む。</summary>
@@ -118,19 +133,59 @@ public partial class PreviewWindow : Window
 
     private void LoadText(string path)
     {
-        // BOM 判定付きで読み込む(既定 UTF-8)。書庫内ファイルはストリームから読む。
+        TextView.Text = ReadPreviewText(path);
+        TextView.Visibility = Visibility.Visible;
+        ImagePanel.Visibility = Visibility.Collapsed;
+        MarkdownView.Visibility = Visibility.Collapsed;
+    }
+
+    /// <summary>テキストを BOM 判定付きで読み込む(既定 UTF-8)。書庫内ファイルはストリームから読む。</summary>
+    private static string ReadPreviewText(string path)
+    {
         if (ArchivePath.TrySplit(path, out _, out _))
         {
             using var stream = new MemoryStream(ArchiveExtractor.ReadEntryBytes(path));
             using var reader = new StreamReader(stream, detectEncodingFromByteOrderMarks: true);
-            TextView.Text = reader.ReadToEnd();
+            return reader.ReadToEnd();
         }
-        else
-        {
-            TextView.Text = File.ReadAllText(path);
-        }
-        TextView.Visibility = Visibility.Visible;
+        return File.ReadAllText(path);
+    }
+
+    /// <summary>WebView2 を表示し、画像/テキストを隠す。</summary>
+    private void ShowWebView()
+    {
+        MarkdownView.Visibility = Visibility.Visible;
         ImagePanel.Visibility = Visibility.Collapsed;
+        TextView.Visibility = Visibility.Collapsed;
+    }
+
+    /// <summary>
+    /// WebView2 環境を生成・初期化し、仮想ホストへ <paramref name="hostDir"/> をマップして CoreWebView2 を返す。
+    /// メッセージ購読は初回のみ行う。マップは描画対象が変わるたびに張り替える。
+    /// </summary>
+    private async Task<CoreWebView2> EnsureWebViewMappedAsync(string hostDir)
+    {
+        // 環境生成と初期化は初回のみ(再生成すると「別の環境で初期化済み」例外になる)。
+        if (!_webViewReady)
+        {
+            var env = await PreviewWebHost.CreateEnvironmentAsync();
+            await MarkdownView.EnsureCoreWebView2Async(env);
+            var c = MarkdownView.CoreWebView2;
+            // WebView2 にフォーカスがある間はキーが WPF 側へ届かないため、HTML 側の Esc/Enter 通知で閉じる。
+            c.WebMessageReceived += OnWebViewMessage;
+            // Markdown レンダリング表示中のみ WebView へフォーカスを移し、↑↓等のネイティブスクロールを効かせる。
+            c.NavigationCompleted += (_, _) =>
+            {
+                if (_kind == PreviewKind.Markdown && !_sourceMode) MarkdownView.Focus();
+            };
+            _webViewReady = true;
+        }
+        var core = MarkdownView.CoreWebView2;
+        // レンダリング対象が変わるたびに仮想ホストのマップを張り替える。
+        if (_hostMapped) core.ClearVirtualHostNameToFolderMapping(PreviewHost);
+        core.SetVirtualHostNameToFolderMapping(PreviewHost, hostDir, CoreWebView2HostResourceAccessKind.Allow);
+        _hostMapped = true;
+        return core;
     }
 
     /// <summary>
@@ -139,22 +194,9 @@ public partial class PreviewWindow : Window
     /// </summary>
     private async Task LoadMarkdownAsync(string path)
     {
-        MarkdownView.Visibility = Visibility.Visible;
-        ImagePanel.Visibility = Visibility.Collapsed;
-        TextView.Visibility = Visibility.Collapsed;
+        ShowWebView();
 
-        string markdown;
-        if (ArchivePath.TrySplit(path, out _, out _))
-        {
-            using var stream = new MemoryStream(ArchiveExtractor.ReadEntryBytes(path));
-            using var reader = new StreamReader(stream, detectEncodingFromByteOrderMarks: true);
-            markdown = reader.ReadToEnd();
-        }
-        else
-        {
-            markdown = File.ReadAllText(path);
-        }
-
+        var markdown = ReadPreviewText(path);
         var previewDir = GetPreviewDir();
         EnsureMermaidScript(previewDir);
         CleanupOldPages(previewDir);
@@ -164,15 +206,8 @@ public partial class PreviewWindow : Window
 
         try
         {
-            var env = await PreviewWebHost.CreateEnvironmentAsync();
-            await MarkdownView.EnsureCoreWebView2Async(env);
-            // WebView2 にフォーカスがある間はキーが WPF 側へ届かないため、HTML 側の Esc/Enter 通知で閉じる。
-            MarkdownView.CoreWebView2.WebMessageReceived += OnWebViewMessage;
-            // 描画完了後に WebView へフォーカスを移し、↑↓/PgUp/PgDn/Home/End のネイティブスクロールを効かせる。
-            MarkdownView.CoreWebView2.NavigationCompleted += (_, _) => MarkdownView.Focus();
-            MarkdownView.CoreWebView2.SetVirtualHostNameToFolderMapping(
-                PreviewHost, previewDir, CoreWebView2HostResourceAccessKind.Allow);
-            MarkdownView.CoreWebView2.Navigate($"https://{PreviewHost}/{pageName}");
+            var core = await EnsureWebViewMappedAsync(previewDir);
+            core.Navigate($"https://{PreviewHost}/{pageName}");
         }
         catch (Exception ex)
         {
@@ -181,6 +216,62 @@ public partial class PreviewWindow : Window
                 $"Markdown プレビューを表示できません(WebView2 ランタイムが必要です)。\n{ex.Message}",
                 "プレビュー", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
+    }
+
+    /// <summary>
+    /// HTML/XHTML/MHTML/SVG を WebView2 でレンダリング表示する。実ファイルは自身のフォルダーを
+    /// 仮想ホストにマップし、相対参照の CSS/画像/JS も解決する。書庫内ファイルは単体ファイルとして
+    /// 作業フォルダーへ展開して表示する(相対参照は再現しない)。PDF と同様 WebView へはフォーカスを
+    /// 移さず、Esc/Enter での終了とウィンドウ側のスクロール操作(<see cref="ScrollPdf"/>)を維持する。
+    /// </summary>
+    private async Task LoadHtmlAsync(string path)
+    {
+        ShowWebView();
+
+        // 書庫内ファイルは単体ファイルとして作業フォルダーへ展開し、その実パスを使う。
+        string hostDir, fileName, localPath;
+        if (ArchivePath.TrySplit(path, out _, out _))
+        {
+            var previewDir = GetPreviewDir();
+            CleanupOldWebDocs(previewDir);
+            fileName = $"web-{Guid.NewGuid():N}{Path.GetExtension(path)}";
+            localPath = Path.Combine(previewDir, fileName);
+            File.WriteAllBytes(localPath, ArchiveExtractor.ReadEntryBytes(path));
+            hostDir = previewDir;
+        }
+        else
+        {
+            hostDir = Path.GetDirectoryName(path)!;
+            fileName = Path.GetFileName(path);
+            localPath = path;
+        }
+
+        // MHTML(自己完結のMIMEアーカイブ)は https 仮想ホストではダウンロード扱いになるため、
+        // Chromium がアーカイブとして解釈・描画できる file:// で開く。HTML/XHTML/SVG は相対参照を
+        // 解決できるよう仮想ホスト経由で開く。
+        var url = IsMhtml(path)
+            ? new Uri(localPath).AbsoluteUri
+            : $"https://{PreviewHost}/{Uri.EscapeDataString(fileName)}";
+
+        try
+        {
+            var core = await EnsureWebViewMappedAsync(hostDir);
+            core.Navigate(url);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this,
+                $"HTML プレビューを表示できません(WebView2 ランタイムが必要です)。\n{ex.Message}",
+                "プレビュー", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    /// <summary>拡張子が MHTML(.mht/.mhtml)か。</summary>
+    private static bool IsMhtml(string path)
+    {
+        var ext = Path.GetExtension(path);
+        return string.Equals(ext, ".mht", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(ext, ".mhtml", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -245,6 +336,15 @@ public partial class PreviewWindow : Window
     private static void CleanupOldDocs(string previewDir)
     {
         foreach (var old in Directory.EnumerateFiles(previewDir, "doc-*.pdf"))
+        {
+            try { File.Delete(old); } catch (IOException) { }
+        }
+    }
+
+    /// <summary>過去に書き出した一時 HTML 系(web-*)を掃除する。失敗は無視(使用中の可能性)。</summary>
+    private static void CleanupOldWebDocs(string previewDir)
+    {
+        foreach (var old in Directory.EnumerateFiles(previewDir, "web-*"))
         {
             try { File.Delete(old); } catch (IOException) { }
         }
@@ -434,6 +534,14 @@ public partial class PreviewWindow : Window
         }
     }
 
+    /// <summary>テキスト(ソース)を表示中か。プレーンテキスト、または Markdown/Html のソース表示時。</summary>
+    private bool ShowingText => _kind == PreviewKind.Text
+        || ((_kind == PreviewKind.Markdown || _kind == PreviewKind.Html) && _sourceMode);
+
+    /// <summary>WebView へフォーカスを移さず DevTools 経由でスクロールさせる表示か(PDF / Html レンダリング)。</summary>
+    private bool ShowingWebDoc => _kind == PreviewKind.Pdf
+        || (_kind == PreviewKind.Html && !_sourceMode);
+
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
         base.OnPreviewKeyDown(e);
@@ -452,6 +560,12 @@ public partial class PreviewWindow : Window
                 e.Handled = true;
                 break;
 
+            case Key.S when _kind == PreviewKind.Markdown || _kind == PreviewKind.Html:
+                _sourceMode = !_sourceMode;  // レンダリング ⇄ ソース表示
+                ShowCurrent();
+                e.Handled = true;
+                break;
+
             case Key.Up when _isImage:
                 StepToAdjacentImage(-1);
                 e.Handled = true;
@@ -463,65 +577,65 @@ public partial class PreviewWindow : Window
                 e.Handled = true;
                 break;
 
-            // テキスト表示中のスクロール(カーソルは動かさずビューだけ動かす)。
-            // Markdown は WebView2 のネイティブスクロールに委ねる。
-            case Key.Up when _kind == PreviewKind.Text:
+            // テキスト(ソース)表示中のスクロール(カーソルは動かさずビューだけ動かす)。
+            // Markdown レンダリング表示は WebView2 のネイティブスクロールに委ねる。
+            case Key.Up when ShowingText:
                 TextView.LineUp();
                 e.Handled = true;
                 break;
 
-            case Key.Down when _kind == PreviewKind.Text:
+            case Key.Down when ShowingText:
                 TextView.LineDown();
                 e.Handled = true;
                 break;
 
-            case Key.PageUp when _kind == PreviewKind.Text:
+            case Key.PageUp when ShowingText:
                 TextView.PageUp();
                 e.Handled = true;
                 break;
 
-            case Key.PageDown when _kind == PreviewKind.Text:
+            case Key.PageDown when ShowingText:
                 TextView.PageDown();
                 e.Handled = true;
                 break;
 
-            case Key.Home when _kind == PreviewKind.Text:
+            case Key.Home when ShowingText:
                 TextView.ScrollToHome();
                 e.Handled = true;
                 break;
 
-            case Key.End when _kind == PreviewKind.Text:
+            case Key.End when ShowingText:
                 TextView.ScrollToEnd();
                 e.Handled = true;
                 break;
 
-            // PDF 表示中のスクロール。WebView へキー入力を送って組み込みビューアを動かす。
-            case Key.Up when _kind == PreviewKind.Pdf:
+            // PDF / Html レンダリング表示中のスクロール。WebView へキー入力を送って動かす。
+            case Key.Up when ShowingWebDoc:
                 ScrollPdf("ArrowUp", 38);
                 e.Handled = true;
                 break;
 
-            case Key.Down when _kind == PreviewKind.Pdf:
+            case Key.Down when ShowingWebDoc:
                 ScrollPdf("ArrowDown", 40);
                 e.Handled = true;
                 break;
 
-            case Key.PageUp when _kind == PreviewKind.Pdf:
+            case Key.PageUp when ShowingWebDoc:
                 ScrollPdf("PageUp", 33);
                 e.Handled = true;
                 break;
 
-            case Key.PageDown when _kind == PreviewKind.Pdf:
+            case Key.PageDown when ShowingWebDoc:
                 ScrollPdf("PageDown", 34);
                 e.Handled = true;
                 break;
 
-            case Key.Home when _kind == PreviewKind.Pdf:
+            case Key.Home when ShowingWebDoc:
                 ScrollPdf("Home", 36);
                 e.Handled = true;
                 break;
 
-            case Key.End when _kind == PreviewKind.Pdf:
+            case Key.End when ShowingWebDoc:
                 ScrollPdf("End", 35);
                 e.Handled = true;
                 break;

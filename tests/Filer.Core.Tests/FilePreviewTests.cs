@@ -21,10 +21,21 @@ public sealed class FilePreviewTests
     [InlineData("data.json")]
     [InlineData("config.yaml")]
     [InlineData("Program.cs")]
-    [InlineData(@"C:\proj\index.html")]
     public void ClassifyByExtension_TextExtensions_ReturnsText(string path)
     {
         Assert.Equal(PreviewKind.Text, FilePreview.ClassifyByExtension(path));
+    }
+
+    [Theory]
+    [InlineData(@"C:\proj\index.html")]
+    [InlineData("page.HTM")]
+    [InlineData("doc.xhtml")]
+    [InlineData("saved.mht")]
+    [InlineData("saved.MHTML")]
+    [InlineData("icon.svg")]
+    public void ClassifyByExtension_HtmlExtensions_ReturnsHtml(string path)
+    {
+        Assert.Equal(PreviewKind.Html, FilePreview.ClassifyByExtension(path));
     }
 
     [Theory]
