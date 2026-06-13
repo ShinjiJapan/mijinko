@@ -1,0 +1,30 @@
+<Window x:Class="Filer.App.FavoriteEditDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStartupLocation="CenterOwner"
+        SizeToContent="Height" Width="460"
+        ResizeMode="NoResize" ShowInTaskbar="False"
+        Background="{DynamicResource Surface.Background}" Foreground="{DynamicResource Fg.Primary}" Title="お気に入りの編集">
+    <Window.Resources>
+        <Style TargetType="Button" BasedOn="{StaticResource DialogButton}"/>
+    </Window.Resources>
+    <StackPanel Margin="14">
+        <TextBlock Text="ラベル(空ならパスを表示)" Foreground="{DynamicResource Fg.Secondary}" Margin="0,0,0,4"/>
+        <TextBox x:Name="LabelInput" FontSize="14" Padding="4"
+                 Background="{DynamicResource Input.Background}" Foreground="{DynamicResource Fg.Strong}" CaretBrush="{DynamicResource Fg.Strong}"/>
+        <TextBlock Text="グループ" Foreground="{DynamicResource Fg.Secondary}" Margin="0,12,0,4"/>
+        <ComboBox x:Name="GroupInput" Style="{StaticResource DialogComboBox}"
+                  FontSize="14" Height="28"
+                  ToolTip="自由入力、または ▼ で既存グループから選択"/>
+        <TextBlock Text="空欄=ルート直下。「仕事/CLI」のように / 区切りで新しい階層を作成できます。"
+                   Foreground="{DynamicResource Fg.Subtle}" FontSize="11" Margin="0,3,0,0"/>
+        <TextBlock Text="パス" Foreground="{DynamicResource Fg.Secondary}" Margin="0,12,0,4"/>
+        <TextBox x:Name="PathInput" FontSize="14" Padding="4"
+                 FontFamily="Consolas, MS Gothic"
+                 Background="{DynamicResource Input.Background}" Foreground="{DynamicResource Fg.Strong}" CaretBrush="{DynamicResource Fg.Strong}"/>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button Content="OK" Width="80" IsDefault="True" Click="Ok_Click" Margin="0,0,8,0"/>
+            <Button Content="キャンセル" Width="80" IsCancel="True"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

@@ -1,0 +1,15 @@
+﻿<Application x:Class="Filer.App.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Filer.App">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- 起動時の既定テーマ。実行時に ThemeManager が設定値へ差し替える。 -->
+                <ResourceDictionary Source="Themes/Dark.xaml"/>
+                <!-- テーマ追従の共通コントロール(スクロールバー等)。 -->
+                <ResourceDictionary Source="Styles/Controls.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

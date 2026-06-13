@@ -1,0 +1,44 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- ライトテーマ。Dark.xaml と同一キー集合。 -->
+
+    <!-- 面(背景) -->
+    <SolidColorBrush x:Key="App.Background" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="Surface.Background" Color="#F3F3F3"/>
+    <SolidColorBrush x:Key="Panel.Background" Color="#ECECEC"/>
+    <SolidColorBrush x:Key="PanelAlt.Background" Color="#E4E4E4"/>
+    <SolidColorBrush x:Key="Input.Background" Color="#FFFFFF"/>
+
+    <!-- 文字 -->
+    <SolidColorBrush x:Key="Fg.Primary" Color="#1F1F1F"/>
+    <SolidColorBrush x:Key="Fg.Secondary" Color="#3B3B3B"/>
+    <SolidColorBrush x:Key="Fg.Muted" Color="#555555"/>
+    <SolidColorBrush x:Key="Fg.Subtle" Color="#777777"/>
+    <SolidColorBrush x:Key="Fg.Disabled" Color="#AAAAAA"/>
+    <SolidColorBrush x:Key="Fg.Strong" Color="#000000"/>
+    <SolidColorBrush x:Key="Fg.OnAccent" Color="#FFFFFF"/>
+
+    <!-- 枠・コントロール -->
+    <SolidColorBrush x:Key="Border.Default" Color="#CFCFCF"/>
+    <SolidColorBrush x:Key="Border.Control" Color="#B5B5B5"/>
+    <SolidColorBrush x:Key="Control.Background" Color="#E8E8E8"/>
+    <SolidColorBrush x:Key="Control.BackgroundHover" Color="#DADADA"/>
+    <SolidColorBrush x:Key="Control.BackgroundDisabled" Color="#F0F0F0"/>
+
+    <!-- アクセント・状態 -->
+    <SolidColorBrush x:Key="Accent" Color="#0067C0"/>
+    <SolidColorBrush x:Key="Accent.Bright" Color="#1F6FEB"/>
+    <SolidColorBrush x:Key="Accent.Text" Color="#0A5BC0"/>
+    <SolidColorBrush x:Key="Selection.Background" Color="#CCE3FF"/>
+    <SolidColorBrush x:Key="Row.Hover" Color="#EAEAEA"/>
+    <SolidColorBrush x:Key="Entry.Directory" Color="#1A6FD0"/>
+    <SolidColorBrush x:Key="Entry.Underline" Color="#000000"/>
+    <SolidColorBrush x:Key="Marked.Background" Color="#FFE8C2"/>
+    <SolidColorBrush x:Key="Marked.Foreground" Color="#9A5B00"/>
+    <SolidColorBrush x:Key="Capture.Background" Color="#DCEBFB"/>
+    <SolidColorBrush x:Key="Capture.Border" Color="#1177BB"/>
+    <SolidColorBrush x:Key="CustomMark.Foreground" Color="#8A7400"/>
+
+    <!-- Git ブランチ表示(行の状態はバッジ=EntryViewModel の固定色で表示) -->
+    <SolidColorBrush x:Key="Git.Branch" Color="#652D90"/>
+</ResourceDictionary>

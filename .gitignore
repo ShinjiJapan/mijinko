@@ -1,0 +1,58 @@
+# ===== ビルド成果物 =====
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+build/
+bld/
+[Ll]og/
+[Ll]ogs/
+
+# 発行(単一 exe)成果物
+publish/
+
+# ===== Visual Studio / Rider 等 =====
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.rsuser
+.idea/
+
+# ===== NuGet =====
+*.nupkg
+*.snupkg
+packages/
+!packages/build/
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# ===== テスト/カバレッジ =====
+[Tt]est[Rr]esult*/
+[Cc]overage*/
+*.coverage
+*.coveragexml
+*.trx
+
+# ===== Claude Code(ツール・ローカル設定) =====
+# バンドルされたスキル群やマシン固有設定はリポジトリに含めない
+.claude/
+
+# ===== 使い捨て一時ファイル(agent/tmp) =====
+agent/tmp/
+
+# ===== その他 =====
+*.tmp
+*.bak
+*~
+Thumbs.db
+desktop.ini
+.DS_Store
+memo

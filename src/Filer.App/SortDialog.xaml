@@ -1,0 +1,43 @@
+<Window x:Class="Filer.App.SortDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStartupLocation="CenterOwner"
+        SizeToContent="WidthAndHeight"
+        ResizeMode="NoResize" ShowInTaskbar="False"
+        Background="{DynamicResource Surface.Background}" Foreground="{DynamicResource Fg.Primary}" Title="ソート">
+    <Window.Resources>
+        <Style TargetType="RadioButton">
+            <Setter Property="Foreground" Value="{DynamicResource Fg.Primary}"/>
+            <Setter Property="Margin" Value="2,3"/>
+        </Style>
+        <Style TargetType="GroupBox">
+            <Setter Property="Foreground" Value="{DynamicResource Fg.Secondary}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource Border.Default}"/>
+        </Style>
+    </Window.Resources>
+    <StackPanel Margin="14" Width="240">
+        <GroupBox Header="ソート方法">
+            <StackPanel Margin="6,4">
+                <RadioButton x:Name="MethodName" Content="名前順(_N)"/>
+                <RadioButton x:Name="MethodExt" Content="拡張子順(_E)"/>
+                <RadioButton x:Name="MethodDate" Content="日付順(_D)"/>
+                <RadioButton x:Name="MethodSize" Content="サイズ順(_S)"/>
+            </StackPanel>
+        </GroupBox>
+
+        <GroupBox Header="順番" Margin="0,10,0,0">
+            <StackPanel Orientation="Horizontal" Margin="6,4">
+                <RadioButton x:Name="OrderAsc" Content="昇順(_A)"/>
+                <RadioButton x:Name="OrderDesc" Content="降順(_R)" Margin="20,3,2,3"/>
+            </StackPanel>
+        </GroupBox>
+
+        <TextBlock Foreground="{DynamicResource Fg.Subtle}" FontSize="11" Margin="2,10,2,0" TextWrapping="Wrap"
+                   Text="N/E/D/S:方法  A/R:昇順/降順  Enter:決定  Esc:キャンセル"/>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button Content="OK" Width="80" IsDefault="True" Click="Ok_Click" Margin="0,0,8,0"/>
+            <Button Content="キャンセル" Width="80" IsCancel="True"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

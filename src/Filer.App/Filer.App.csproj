@@ -1,0 +1,35 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Filer.Core\Filer.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4022.49" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Markdown プレビュー用 mermaid.js をアセンブリへ埋め込み、実行時に展開する -->
+    <EmbeddedResource Include="Assets\mermaid.min.js" />
+    <!-- 組み込みターミナル用 xterm.js 一式(実行時に展開する) -->
+    <EmbeddedResource Include="Assets\xterm\xterm.min.js" />
+    <EmbeddedResource Include="Assets\xterm\xterm.css" />
+    <EmbeddedResource Include="Assets\xterm\xterm-addon-fit.min.js" />
+    <!-- ウィンドウ/タスクバー用にアイコンを WPF リソースとして同梱 -->
+    <Resource Include="Assets\appicon.ico" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <!-- exe・エクスプローラー表示用のアプリアイコン -->
+    <ApplicationIcon>Assets\appicon.ico</ApplicationIcon>
+    <!-- DPI 認識を PerMonitorV2 に宣言(非100%モニターでの文字ぼやけ防止) -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+</Project>

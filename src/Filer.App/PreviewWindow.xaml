@@ -1,0 +1,46 @@
+<Window x:Class="Filer.App.PreviewWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        WindowStartupLocation="CenterOwner"
+        WindowStyle="None" WindowState="Maximized" ResizeMode="NoResize"
+        Background="{DynamicResource App.Background}" Title="プレビュー">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- ファイル名ヘッダー(本文に被らない独立バー) -->
+        <Border Grid.Row="0" Background="{DynamicResource Panel.Background}">
+            <TextBlock x:Name="InfoText" Foreground="{DynamicResource Fg.Primary}" FontSize="13"
+                       Padding="12,6" TextTrimming="CharacterEllipsis"/>
+        </Border>
+
+        <!-- 画像プレビュー: 全画面に収める(Uniform)。1キーで横並び2枚表示。
+             漫画のように右→左で読めるよう、現在の画像を右(ImageView)、次の画像を左(ImageView2)に置く。
+             2枚表示時は左画像を右寄せ・右画像を左寄せにして中央の境目で隙間なく接する。
+             1枚表示時は ImageView を中央(Stretch)に戻す(コード側で切替)。 -->
+        <Grid Grid.Row="1" x:Name="ImagePanel" Visibility="Collapsed">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="SecondCol" Width="0"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Image Grid.Column="0" x:Name="ImageView2" Stretch="Uniform"
+                   HorizontalAlignment="Right" Visibility="Collapsed"/>
+            <Image Grid.Column="1" x:Name="ImageView" Stretch="Uniform"/>
+        </Grid>
+
+        <!-- テキストプレビュー: 読み取り専用・等幅・右端で折り返し -->
+        <TextBox Grid.Row="1" x:Name="TextView" Visibility="Collapsed"
+                 IsReadOnly="True" IsReadOnlyCaretVisible="True"
+                 FontFamily="Consolas, MS Gothic" FontSize="14"
+                 Background="{DynamicResource Input.Background}" Foreground="{DynamicResource Fg.Primary}"
+                 BorderThickness="0" Padding="12"
+                 TextWrapping="Wrap"
+                 HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"/>
+
+        <!-- Markdown プレビュー: Markdig→HTML を WebView2 で描画(mermaid 対応) -->
+        <wv2:WebView2 Grid.Row="1" x:Name="MarkdownView" Visibility="Collapsed"/>
+    </Grid>
+</Window>
