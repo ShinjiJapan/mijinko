@@ -37,7 +37,10 @@ public partial class FileSearchDialog : Window
     /// <summary>直近の検索が内容検索(grep)だったか(ファイル名検索なら false)。</summary>
     private bool _isContentSearch;
 
-    /// <summary>非管理者起動時の高速検索(昇格ヘルパー)。管理者起動なら null(ボタンも出さない)。</summary>
+    /// <summary>
+    /// 高速検索(昇格ヘルパー)。null なら通常走査のみ。非 null なら「検索開始」が昇格ヘルパー経由になる。
+    /// 管理者起動時、または設定で高速検索を無効化したときは呼び出し側が null を渡す。
+    /// </summary>
     private readonly ElevatedSearchProxy? _elevatedProxy;
 
     /// <summary>検索結果(検索完了時は相対パス順)。</summary>
@@ -70,9 +73,6 @@ public partial class FileSearchDialog : Window
         BaseDir.Text = initialBaseDirectory;
         ResultsList.ItemsSource = _items;
         _elevatedProxy = elevatedProxy;
-        // 非管理者起動(proxy あり)のときだけ高速検索ボタンを出す。
-        if (elevatedProxy is not null)
-            FastSearchButton.Visibility = Visibility.Visible;
         _flushTimer = new DispatcherTimer(DispatcherPriority.Background)
         {
             Interval = TimeSpan.FromMilliseconds(150),
@@ -90,13 +90,13 @@ public partial class FileSearchDialog : Window
 
     // ---- 検索の実行 ----
 
-    private async void Search_Click(object sender, RoutedEventArgs e) => await StartSearchAsync(elevated: false);
-
-    private async void FastSearch_Click(object sender, RoutedEventArgs e) => await StartSearchAsync(elevated: true);
+    // 高速検索プロキシがあれば(非管理者起動かつ設定 ON)昇格ヘルパー経由、なければ通常走査。
+    private async void Search_Click(object sender, RoutedEventArgs e) =>
+        await StartSearchAsync(elevated: _elevatedProxy is not null);
 
     /// <summary>
-    /// 検索を開始する。<paramref name="elevated"/>=true なら昇格ヘルパー経由(高速検索ボタン)、
-    /// false なら通常どおりインプロセスで検索する(検索開始ボタン)。
+    /// 検索を開始する。<paramref name="elevated"/>=true なら昇格ヘルパー経由(MFT 索引)、
+    /// false なら通常どおりインプロセスで検索する。内容検索(grep)は常にインプロセス。
     /// </summary>
     private async Task StartSearchAsync(bool elevated)
     {
@@ -174,7 +174,7 @@ public partial class FileSearchDialog : Window
         }
         catch (ElevationDeclinedException ex)
         {
-            // UAC 拒否。ボタンは残し、理由だけ表示する(勝手な通常走査フォールバックはしない)。
+            // UAC 拒否。理由だけ表示する(勝手な通常走査フォールバックはしない)。
             ShowError(ex.Message);
         }
         catch (Exception ex)
@@ -288,8 +288,6 @@ public partial class FileSearchDialog : Window
         // 内容検索はファイルのみ対象(ディレクトリ・書庫内 grep は非対応)。MFT 高速検索も名前検索専用。
         DirCheck.IsEnabled = !grep;
         ArchiveCheck.IsEnabled = !grep;
-        if (_elevatedProxy is not null)
-            FastSearchButton.Visibility = grep ? Visibility.Collapsed : Visibility.Visible;
     }
 
     /// <summary>実行中の検索があれば中断して終了を待つ。</summary>

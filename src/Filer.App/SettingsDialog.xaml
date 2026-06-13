@@ -295,6 +295,18 @@
                 </StackPanel>
             </TabItem>
 
+            <!-- ============ 検索 ============ -->
+            <TabItem Header="検索">
+                <StackPanel Margin="16" Background="{DynamicResource App.Background}">
+                    <TextBlock Text="高速検索(管理者権限)" FontSize="13" FontWeight="Bold"
+                               Foreground="{DynamicResource Fg.Secondary}" Margin="0,4,0,10"/>
+                    <CheckBox x:Name="EnableFastSearchCheck" Foreground="{DynamicResource Fg.Primary}"
+                              Content="非管理者で起動したときに高速検索(管理者権限)を使う"/>
+                    <TextBlock Style="{StaticResource HintText}" Margin="24,6,0,0" FontSize="12" TextWrapping="Wrap"
+                               Text="ON にすると、非管理者で起動した状態でもファイル検索ダイアログの「検索開始」が高速検索(MFT 直読み)になります。初回利用時に一度だけ UAC(昇格)の確認が出て、以降は常駐する昇格ヘルパーが高速に検索します。OFF にすると「検索開始」は通常走査のみで UAC も起こしません。管理者で起動した場合はこの設定によらず常に高速検索になります。OK で即時反映。"/>
+                </StackPanel>
+            </TabItem>
+
             <!-- ============ 確認ダイアログ ============ -->
             <TabItem Header="確認">
                 <StackPanel Margin="16" Background="{DynamicResource App.Background}">

@@ -751,18 +751,21 @@ public partial class MainWindow : Window
     /// </summary>
     /// <summary>非管理者起動時のみ生成する高速検索(昇格ヘルパー)プロキシ。管理者起動なら null。</summary>
     private ElevatedSearchProxy? _searchProxy;
-    private bool _searchProxyInitialized;
 
     /// <summary>
-    /// 高速検索プロキシを取得する(非管理者起動時のみ)。常駐ヘルパーを温存するため使い回す。
+    /// 高速検索プロキシを取得する(非管理者起動かつ設定で有効なときのみ)。常駐ヘルパーを温存するため使い回す。
+    /// 管理者起動、または設定 OFF のときは null(高速検索ボタンを出さない)。設定で OFF にされたら
+    /// 常駐ヘルパーを片付ける。
     /// </summary>
     private ElevatedSearchProxy? GetOrCreateSearchProxy()
     {
-        if (!_searchProxyInitialized)
+        if (IsRunningAsAdministrator() || !Vm.Settings.EnableElevatedFastSearch)
         {
-            _searchProxyInitialized = true;
-            _searchProxy = IsRunningAsAdministrator() ? null : new ElevatedSearchProxy();
+            _searchProxy?.Dispose();   // 設定 OFF で常駐ヘルパーを終了させる
+            _searchProxy = null;
+            return null;
         }
+        _searchProxy ??= new ElevatedSearchProxy();
         return _searchProxy;
     }
 

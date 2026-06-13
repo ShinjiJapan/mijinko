@@ -69,6 +69,8 @@ public partial class SettingsDialog : Window
         ConfirmRecycleCheck.IsChecked = current.ConfirmRecycle;
         ConfirmPermanentDeleteCheck.IsChecked = current.ConfirmPermanentDelete;
 
+        EnableFastSearchCheck.IsChecked = current.EnableElevatedFastSearch;
+
         BindingList.SelectionChanged += (_, _) => UpdateButtonStates();
         ToolList.SelectionChanged += (_, _) => UpdateToolButtonStates();
         // 衝突確認ダイアログや Alt+Tab でフォーカスが離れたらキャプチャを安全に中止する。
@@ -472,7 +474,8 @@ public partial class SettingsDialog : Window
             LightweightUiaCheck.IsChecked == true,
             ConfirmMoveCheck.IsChecked == true,
             ConfirmRecycleCheck.IsChecked == true,
-            ConfirmPermanentDeleteCheck.IsChecked == true);
+            ConfirmPermanentDeleteCheck.IsChecked == true,
+            EnableFastSearchCheck.IsChecked == true);
         DialogResult = true;
     }
 

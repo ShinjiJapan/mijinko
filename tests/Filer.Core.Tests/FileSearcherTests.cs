@@ -48,6 +48,22 @@ public sealed class FileSearcherTests : IDisposable
         Assert.False(matcher("readme.txt"));
     }
 
+    // ---- 相対パスの切り出し ----
+
+    [Theory]
+    // 通常のディレクトリ(区切りで終わらない): 基準長 + 区切り1文字をスキップ。
+    [InlineData(@"C:\work", @"C:\work\docs\a.md", @"docs\a.md")]
+    // ドライブ直下(区切りで終わる): 余分に1文字スキップしない(先頭欠けバグの再現防止)。
+    [InlineData(@"H:\", @"H:\Game\x.md", @"Game\x.md")]
+    [InlineData(@"H:\", @"H:\Downloads\a3.md", @"Downloads\a3.md")]
+    // 末尾に区切りが付いた通常ディレクトリでも正しく切り出す。
+    [InlineData(@"C:\work\", @"C:\work\docs\a.md", @"docs\a.md")]
+    public void MakeRelative_TrimsBaseDirectoryWithoutLosingFirstChar(
+        string baseDir, string fullPath, string expected)
+    {
+        Assert.Equal(expected, FileSearcher.MakeRelative(baseDir, fullPath));
+    }
+
     [Fact]
     public void Matcher_Empty_MatchesAll()
     {

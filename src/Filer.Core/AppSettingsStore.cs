@@ -10,6 +10,8 @@ namespace Filer.Core;
 /// (UIAクライアント常駐環境でのフォルダー移動を高速化。スクリーンリーダー等から行が見えなくなる)。
 /// ConfirmMove=移動時、ConfirmRecycle=ごみ箱送り(D)時、ConfirmPermanentDelete=完全削除(Shift+D)時に
 /// 確認ダイアログを出すか(いずれも既定 true)。
+/// EnableElevatedFastSearch=非管理者起動時に昇格ヘルパー経由の高速検索(MFT 直読み)を使えるようにするか
+/// (既定 true)。false なら高速検索ボタンを出さず UAC も起こさない。管理者起動時はこの設定によらず無関係。
 /// </summary>
 public sealed record AppSettings(
     IReadOnlyDictionary<string, string[]> KeyBindingOverrides,
@@ -18,7 +20,8 @@ public sealed record AppSettings(
     bool LightweightListAutomation = false,
     bool ConfirmMove = true,
     bool ConfirmRecycle = true,
-    bool ConfirmPermanentDelete = true)
+    bool ConfirmPermanentDelete = true,
+    bool EnableElevatedFastSearch = true)
 {
     public static AppSettings CreateDefault() =>
         new(new Dictionary<string, string[]>(), ExternalTools.Defaults());
@@ -64,7 +67,8 @@ public sealed class AppSettingsStore
                 dto.LightweightListAutomation ?? false,
                 dto.ConfirmMove ?? true,
                 dto.ConfirmRecycle ?? true,
-                dto.ConfirmPermanentDelete ?? true);
+                dto.ConfirmPermanentDelete ?? true,
+                dto.EnableElevatedFastSearch ?? true);
         }
         catch (JsonException)
         {
@@ -83,6 +87,7 @@ public sealed class AppSettingsStore
             ConfirmMove = settings.ConfirmMove,
             ConfirmRecycle = settings.ConfirmRecycle,
             ConfirmPermanentDelete = settings.ConfirmPermanentDelete,
+            EnableElevatedFastSearch = settings.EnableElevatedFastSearch,
         };
 
         var dir = Path.GetDirectoryName(_filePath);
@@ -140,6 +145,7 @@ public sealed class AppSettingsStore
         public bool? ConfirmMove { get; set; }
         public bool? ConfirmRecycle { get; set; }
         public bool? ConfirmPermanentDelete { get; set; }
+        public bool? EnableElevatedFastSearch { get; set; }
     }
 
     private sealed class ToolDto

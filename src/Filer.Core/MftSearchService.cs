@@ -372,7 +372,7 @@ public static class MftSearchService
         FileSearchOptions options, string baseDir, FileNameMatcher matcher,
         CancellationToken token, Action<IReadOnlyList<FileEntry>>? onBatch, List<FileEntry> results)
     {
-        var relStart = baseDir.Length + 1;
+        var relStart = FileSearcher.RelativeStart(baseDir);
         try
         {
             Parallel.ForEach(candidates,

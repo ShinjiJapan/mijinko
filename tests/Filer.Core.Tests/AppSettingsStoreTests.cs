@@ -181,6 +181,33 @@ public sealed class AppSettingsStoreTests
     }
 
     [Fact]
+    public void Load_NoFile_EnableElevatedFastSearchDefaultsToOn()
+    {
+        Assert.True(new AppSettingsStore(TempFile()).Load().EnableElevatedFastSearch);
+    }
+
+    [Fact]
+    public void SaveThenLoad_RoundTripsEnableElevatedFastSearch()
+    {
+        var path = TempFile();
+        new AppSettingsStore(path).Save(new AppSettings(
+            new Dictionary<string, string[]>(), Array.Empty<ExternalTool>(),
+            EnableElevatedFastSearch: false));
+
+        Assert.False(new AppSettingsStore(path).Load().EnableElevatedFastSearch);
+    }
+
+    [Fact]
+    public void Load_NoFastSearchKey_DefaultsToOn()
+    {
+        var path = TempFile();
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, """{ "keyBindings": { "file.copy": ["X"] } }""");
+
+        Assert.True(new AppSettingsStore(path).Load().EnableElevatedFastSearch);
+    }
+
+    [Fact]
     public void Save_OmitsKeyOverridesIdenticalToDefaults()
     {
         var path = TempFile();

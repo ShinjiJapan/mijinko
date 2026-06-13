@@ -145,6 +145,21 @@ public static class FileSearcher
         entries.Sort(static (a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
+    /// 基準ディレクトリ配下のフルパスから相対パスを切り出す開始位置。
+    /// 基準がドライブ直下("H:\")など区切りで終わる場合は、その先に区切りが無いので余分に1文字スキップしない
+    /// (これをしないと相対パスの先頭1文字が欠ける)。
+    /// </summary>
+    public static int RelativeStart(string baseDir) =>
+        baseDir.Length + (Path.EndsInDirectorySeparator(baseDir) ? 0 : 1);
+
+    /// <summary>基準ディレクトリ配下のフルパスを基準相対のパスに変換する。</summary>
+    public static string MakeRelative(string baseDir, string fullPath)
+    {
+        var start = RelativeStart(baseDir);
+        return fullPath.Length > start ? fullPath[start..] : fullPath;
+    }
+
+    /// <summary>
     /// 書庫(.zip)内のエントリを検索して通知する(走査エンジン・MFT エンジン共用)。
     /// 仮想パスは「書庫パス\内部パス」、Name は基準ディレクトリ相対(relStart 文字目以降)。
     /// 開けない・壊れた書庫は検索対象外として読み飛ばす。
@@ -310,7 +325,7 @@ public static class FileSearcher
                         var local = found ??= new();
                         ScanArchiveEntries(item.FullPath, _matcher,
                             _options.IncludeFiles, _options.IncludeDirectories,
-                            _baseDir.Length + 1, _token, local.Add);
+                            RelativeStart(_baseDir), _token, local.Add);
                     }
                 }
             }
@@ -335,8 +350,7 @@ public static class FileSearcher
             }
         }
 
-        private string Relative(string fullPath) =>
-            fullPath.Length > _baseDir.Length + 1 ? fullPath[(_baseDir.Length + 1)..] : fullPath;
+        private string Relative(string fullPath) => MakeRelative(_baseDir, fullPath);
 
         private static bool IsZipName(ReadOnlySpan<char> name) =>
             name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase);
