@@ -261,6 +261,16 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary>アクティブ側を指定パスへ移動する。</summary>
     public void NavigateActiveTo(string path) => Active.NavigateTo(path);
 
+    /// <summary>
+    /// 差分表示の対象2ファイルを解決する。アクティブペインで2件マーク時はその2件、
+    /// マーク無し時は左ペインのカーソル項目 vs 右ペインのカーソル項目を対象とする。
+    /// </summary>
+    public DiffResolution ResolveDiffTargets()
+    {
+        var marked = Active.Marked.Select(e => e.FullPath).ToList();
+        return DiffTargetResolver.Resolve(marked, Left.SelectedItemPath, Right.SelectedItemPath);
+    }
+
     /// <summary>ファイル検索の結果を仮想一覧として登録し、表示用パスを返す(「転送して閉じる」用)。</summary>
     public string RegisterSearchResults(string label, string baseDirectory, IReadOnlyList<FileEntry> results)
         => _searchResults.Register(label, baseDirectory, results);

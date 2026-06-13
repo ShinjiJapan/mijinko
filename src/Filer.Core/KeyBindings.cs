@@ -31,6 +31,7 @@ public static class KeyBindingActions
         new("filter.clear", "フィルター解除", "表示", new[] { "Escape" }, null),
         new("nav.sameAsOther", "相手ペインと同じ場所へ", "移動", new[] { "O" }, "相手と同じ"),
         new("path.copy", "フルパスをクリップボードへコピー", "ファイル操作", new[] { "Q" }, "パスコピー"),
+        new("file.diff", "2ファイルの差分を表示", "ファイル操作", new[] { "Shift+C" }, "差分"),
         new("drive.select", "ドライブ選択", "移動", new[] { "L" }, "ドライブ"),
         new("favorite.add", "お気に入りに登録", "移動", new[] { "A" }, "お気に入り"),
         new("favorite.select", "お気に入りへ移動", "移動", new[] { "D1", "NumPad1" }, "お気に入り選択"),

@@ -18,7 +18,7 @@ namespace Filer.App;
 /// </summary>
 public partial class PreviewWindow : Window
 {
-    private const string PreviewHost = "filer.preview";
+    private const string PreviewHost = PreviewWebHost.Host;
 
     private readonly MainViewModel _main;
     private readonly PaneViewModel _pane;
@@ -164,8 +164,7 @@ public partial class PreviewWindow : Window
 
         try
         {
-            var env = await CoreWebView2Environment.CreateAsync(
-                userDataFolder: Path.Combine(GetFilerLocalDir(), "WebView2"));
+            var env = await PreviewWebHost.CreateEnvironmentAsync();
             await MarkdownView.EnsureCoreWebView2Async(env);
             // WebView2 にフォーカスがある間はキーが WPF 側へ届かないため、HTML 側の Esc/Enter 通知で閉じる。
             MarkdownView.CoreWebView2.WebMessageReceived += OnWebViewMessage;
@@ -207,8 +206,7 @@ public partial class PreviewWindow : Window
 
         try
         {
-            var env = await CoreWebView2Environment.CreateAsync(
-                userDataFolder: Path.Combine(GetFilerLocalDir(), "WebView2"));
+            var env = await PreviewWebHost.CreateEnvironmentAsync();
             await MarkdownView.EnsureCoreWebView2Async(env);
             MarkdownView.CoreWebView2.SetVirtualHostNameToFolderMapping(
                 PreviewHost, previewDir, CoreWebView2HostResourceAccessKind.Allow);
@@ -262,20 +260,7 @@ public partial class PreviewWindow : Window
         }
     }
 
-    private static string GetFilerLocalDir()
-    {
-        var dir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Filer");
-        Directory.CreateDirectory(dir);
-        return dir;
-    }
-
-    private static string GetPreviewDir()
-    {
-        var dir = Path.Combine(GetFilerLocalDir(), "preview");
-        Directory.CreateDirectory(dir);
-        return dir;
-    }
+    private static string GetPreviewDir() => PreviewWebHost.PreviewDir();
 
     /// <summary>過去に書き出した一時 HTML(page-*.html)を掃除する。失敗は無視(使用中の可能性)。</summary>
     private static void CleanupOldPages(string previewDir)
@@ -432,24 +417,7 @@ public partial class PreviewWindow : Window
     }
 
     /// <summary>プレビューを重ねるペイン領域(反対側ペイン)のスクリーン矩形(DIP)を求める。取得できなければ null。</summary>
-    private Rect? GetPaneRegionRect()
-    {
-        if (_paneRegion is null || !_paneRegion.IsLoaded
-            || _paneRegion.ActualWidth <= 0 || _paneRegion.ActualHeight <= 0)
-            return null;
-
-        var source = PresentationSource.FromVisual(_paneRegion);
-        if (source?.CompositionTarget is null) return null;
-
-        // PointToScreen は物理ピクセル。Window.Left/Top/Width/Height は DIP なので変換する。
-        var topLeftDevice = _paneRegion.PointToScreen(new Point(0, 0));
-        var bottomRightDevice = _paneRegion.PointToScreen(
-            new Point(_paneRegion.ActualWidth, _paneRegion.ActualHeight));
-        var fromDevice = source.CompositionTarget.TransformFromDevice;
-        var topLeft = fromDevice.Transform(topLeftDevice);
-        var bottomRight = fromDevice.Transform(bottomRightDevice);
-        return new Rect(topLeft, bottomRight);
-    }
+    private Rect? GetPaneRegionRect() => PreviewWebHost.GetPaneRegionRect(_paneRegion);
 
     /// <summary>操作を実行し、失敗はダイアログで通知する(プレビュー中は確認を求めない)。成功時 true。</summary>
     private bool RunOp(Action action)

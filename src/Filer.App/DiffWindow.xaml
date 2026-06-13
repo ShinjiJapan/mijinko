@@ -1,0 +1,23 @@
+<Window x:Class="Filer.App.DiffWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        WindowStartupLocation="CenterOwner"
+        WindowStyle="None" WindowState="Maximized" ResizeMode="NoResize"
+        Background="{DynamicResource App.Background}" Title="差分">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- 比較対象ヘッダー -->
+        <Border Grid.Row="0" Background="{DynamicResource Panel.Background}">
+            <TextBlock x:Name="InfoText" Foreground="{DynamicResource Fg.Primary}" FontSize="13"
+                       Padding="12,6" TextTrimming="CharacterEllipsis"/>
+        </Border>
+
+        <!-- 差分本文: diff→HTML を WebView2 で描画 -->
+        <wv2:WebView2 Grid.Row="1" x:Name="DiffView"/>
+    </Grid>
+</Window>

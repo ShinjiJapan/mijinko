@@ -486,6 +486,7 @@ public partial class MainWindow : Window
         ["folder.create"] = CreateFolderInteractive,
         ["archive.zip"] = CompressInteractive,           // X: 選択項目を ZIP 圧縮
         ["path.copy"] = CopyPathToClipboard,             // カーソル項目のフルパスをコピー
+        ["file.diff"] = ShowDiff,                        // 2ファイルの差分を side-by-side 表示
 
         ["sort.select"] = ShowSortDialog,                // ソート方法・昇降順の選択
         ["search.incremental"] = ShowIncrementalSearch,  // 名前のインクリメンタルサーチ
@@ -588,6 +589,28 @@ public partial class MainWindow : Window
             window.ShowDialog();
         });
         FocusActiveList();   // プレビュー内でカーソル移動した場合も選択行へ復帰
+    }
+
+    /// <summary>
+    /// Shift+C: 2ファイルの差分を side-by-side で表示する。対象は「アクティブで2件マーク」か
+    /// 「左右ペインのカーソル項目」。解決できなければ理由をダイアログで通知する。
+    /// </summary>
+    private void ShowDiff()
+    {
+        var resolution = Vm.ResolveDiffTargets();
+        if (resolution.Targets is not { } targets)
+        {
+            MessageBox.Show(this, resolution.Error, "差分", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        Run(() =>
+        {
+            // ペイン領域表示(F1)は反対側ペインへ重ねる(自分の一覧を見ながら差分を見るため)。
+            var paneRegion = Vm.IsLeftActive ? RightPane : LeftPane;
+            var window = new DiffWindow(targets.LeftPath, targets.RightPath, paneRegion) { Owner = this };
+            window.ShowDialog();
+        });
+        FocusActiveList();
     }
 
     /// <summary>L: ドライブ選択 UI を表示し、選んだドライブのルートへアクティブ側を移動する。</summary>
