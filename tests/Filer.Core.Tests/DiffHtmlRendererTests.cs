@@ -79,6 +79,16 @@ public class DiffHtmlRendererTests
     }
 
     [Fact]
+    public void SizeLimitNotice_StatesLimitInMb()
+    {
+        var html = DiffHtmlRenderer.SizeLimitNoticeDocument("a.txt", "b.txt", 10L * 1024 * 1024, ThemeColors.Dark);
+
+        Assert.Contains("大きすぎる", html);
+        Assert.Contains("10MB", html);
+        Assert.Contains("postMessage('close')", html);
+    }
+
+    [Fact]
     public void ProducesFullHtmlDocumentWithCloseScript()
     {
         var html = Render(LineDiff.Compute(new[] { "a" }, new[] { "b" }));

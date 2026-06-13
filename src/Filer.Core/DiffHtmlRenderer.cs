@@ -70,6 +70,23 @@ public static class DiffHtmlRenderer
         string leftName, string rightName, bool identical, ThemeColors colors)
     {
         var verdict = identical ? "内容は同一です。" : "内容は異なります。";
+        return NoticeDocument(leftName, rightName,
+            new[] { "バイナリファイルのため行差分は表示できません。", verdict }, colors);
+    }
+
+    /// <summary>ファイルが大きすぎて行差分を表示しないときの案内文書。</summary>
+    public static string SizeLimitNoticeDocument(
+        string leftName, string rightName, long maxBytes, ThemeColors colors)
+    {
+        var mb = maxBytes / (1024.0 * 1024.0);
+        return NoticeDocument(leftName, rightName,
+            new[] { $"ファイルが大きすぎるため差分を表示できません(上限 {mb:0.#}MB)。" }, colors);
+    }
+
+    /// <summary>中央寄せの案内文書(バイナリ・サイズ超過などの共通レイアウト)。</summary>
+    private static string NoticeDocument(
+        string leftName, string rightName, IReadOnlyList<string> messages, ThemeColors colors)
+    {
         var sb = new StringBuilder();
         sb.Append("<!DOCTYPE html>\n<html lang=\"ja\">\n<head>\n<meta charset=\"utf-8\">\n<style>\n");
         sb.Append($@"html, body {{ margin: 0; height: 100%; background: {colors.Background}; color: {colors.Foreground};
@@ -78,9 +95,9 @@ public static class DiffHtmlRenderer
 .files {{ color: {colors.Heading}; font-family: 'Consolas', 'MS Gothic', monospace; }}
 ");
         sb.Append("</style>\n</head>\n<body>\n<div class=\"notice\">\n");
-        sb.Append("<p>バイナリファイルのため行差分は表示できません。</p>\n");
         sb.Append("<p class=\"files\">").Append(Esc(leftName)).Append("  ⇔  ").Append(Esc(rightName)).Append("</p>\n");
-        sb.Append("<p>").Append(verdict).Append("</p>\n");
+        foreach (var message in messages)
+            sb.Append("<p>").Append(Esc(message)).Append("</p>\n");
         sb.Append("</div>\n<script>\n").Append(ScriptBody).Append("\n</script>\n</body>\n</html>\n");
         return sb.ToString();
     }

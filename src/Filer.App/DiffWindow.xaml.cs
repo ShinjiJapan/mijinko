@@ -37,23 +37,26 @@ public partial class DiffWindow : Window
     /// <summary>左右ファイルを読み、差分 HTML を作って WebView2 で描画する。</summary>
     private async Task LoadDiffAsync()
     {
-        var (leftBinary, leftLines) = DiffSource.ReadLines(_leftPath);
-        var (rightBinary, rightLines) = DiffSource.ReadLines(_rightPath);
+        var left = DiffSource.Read(_leftPath);
+        var right = DiffSource.Read(_rightPath);
+        var leftName = Path.GetFileName(_leftPath);
+        var rightName = Path.GetFileName(_rightPath);
+        var colors = ThemeManager.CurrentMarkdownColors();
 
         string html;
-        if (leftBinary || rightBinary)
+        if (left.Kind == DiffContentKind.TooLarge || right.Kind == DiffContentKind.TooLarge)
+        {
+            html = DiffHtmlRenderer.SizeLimitNoticeDocument(leftName, rightName, DiffSource.DefaultMaxBytes, colors);
+        }
+        else if (left.Kind == DiffContentKind.Binary || right.Kind == DiffContentKind.Binary)
         {
             var same = FilesEqual(_leftPath, _rightPath);
-            html = DiffHtmlRenderer.BinaryNoticeDocument(
-                Path.GetFileName(_leftPath), Path.GetFileName(_rightPath), same,
-                ThemeManager.CurrentMarkdownColors());
+            html = DiffHtmlRenderer.BinaryNoticeDocument(leftName, rightName, same, colors);
         }
         else
         {
-            var rows = LineDiff.Compute(leftLines, rightLines);
-            html = DiffHtmlRenderer.ToHtmlDocument(rows,
-                Path.GetFileName(_leftPath), Path.GetFileName(_rightPath),
-                ThemeManager.CurrentMarkdownColors());
+            var rows = LineDiff.Compute(left.Lines, right.Lines);
+            html = DiffHtmlRenderer.ToHtmlDocument(rows, leftName, rightName, colors);
         }
 
         var previewDir = PreviewWebHost.PreviewDir();

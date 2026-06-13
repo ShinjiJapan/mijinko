@@ -27,57 +27,85 @@ public class DiffSourceTests : IDisposable
     }
 
     [Fact]
-    public void ReadLines_SplitsMixedNewlines()
+    public void Read_SplitsMixedNewlines()
     {
         var path = Write("mixed.txt", Encoding.UTF8.GetBytes("a\r\nb\nc\rd"));
 
-        var (binary, lines) = DiffSource.ReadLines(path);
+        var content = DiffSource.Read(path);
 
-        Assert.False(binary);
-        Assert.Equal(new[] { "a", "b", "c", "d" }, lines);
+        Assert.Equal(DiffContentKind.Text, content.Kind);
+        Assert.Equal(new[] { "a", "b", "c", "d" }, content.Lines);
     }
 
     [Fact]
-    public void ReadLines_TrailingNewline_DoesNotAddEmptyLine()
+    public void Read_TrailingNewline_DoesNotAddEmptyLine()
     {
         var path = Write("trail.txt", Encoding.UTF8.GetBytes("a\nb\n"));
 
-        var (_, lines) = DiffSource.ReadLines(path);
-
-        Assert.Equal(new[] { "a", "b" }, lines);
+        Assert.Equal(new[] { "a", "b" }, DiffSource.Read(path).Lines);
     }
 
     [Fact]
-    public void ReadLines_Utf8Bom_IsStripped()
+    public void Read_Utf8Bom_IsStripped()
     {
         var bytes = new byte[] { 0xEF, 0xBB, 0xBF }
             .Concat(Encoding.UTF8.GetBytes("あ\nい")).ToArray();
         var path = Write("bom.txt", bytes);
 
-        var (_, lines) = DiffSource.ReadLines(path);
-
-        Assert.Equal(new[] { "あ", "い" }, lines);
+        Assert.Equal(new[] { "あ", "い" }, DiffSource.Read(path).Lines);
     }
 
     [Fact]
-    public void ReadLines_NulBytes_DetectedAsBinary()
+    public void Read_ShiftJisWithoutBom_IsDecodedCorrectly()
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        var sjis = Encoding.GetEncoding(932);
+        var path = Write("sjis.txt", sjis.GetBytes("日本語\nテスト"));
+
+        var content = DiffSource.Read(path);
+
+        Assert.Equal(DiffContentKind.Text, content.Kind);
+        Assert.Equal(new[] { "日本語", "テスト" }, content.Lines);
+    }
+
+    [Fact]
+    public void Read_NulBytes_DetectedAsBinary()
     {
         var path = Write("bin.dat", new byte[] { 0x41, 0x00, 0x42, 0x00 });
 
-        var (binary, lines) = DiffSource.ReadLines(path);
+        var content = DiffSource.Read(path);
 
-        Assert.True(binary);
-        Assert.Empty(lines);
+        Assert.Equal(DiffContentKind.Binary, content.Kind);
+        Assert.Empty(content.Lines);
     }
 
     [Fact]
-    public void ReadLines_EmptyFile_NoLines()
+    public void Read_EmptyFile_NoLines()
     {
         var path = Write("empty.txt", Array.Empty<byte>());
 
-        var (binary, lines) = DiffSource.ReadLines(path);
+        var content = DiffSource.Read(path);
 
-        Assert.False(binary);
-        Assert.Empty(lines);
+        Assert.Equal(DiffContentKind.Text, content.Kind);
+        Assert.Empty(content.Lines);
+    }
+
+    [Fact]
+    public void Read_OverSizeLimit_ReturnsTooLarge()
+    {
+        var path = Write("big.txt", Encoding.UTF8.GetBytes("0123456789"));   // 10 バイト
+
+        var content = DiffSource.Read(path, maxBytes: 5);
+
+        Assert.Equal(DiffContentKind.TooLarge, content.Kind);
+        Assert.Empty(content.Lines);
+    }
+
+    [Fact]
+    public void Read_AtSizeLimit_IsRead()
+    {
+        var path = Write("ok.txt", Encoding.UTF8.GetBytes("abcde"));   // 5 バイト
+
+        Assert.Equal(DiffContentKind.Text, DiffSource.Read(path, maxBytes: 5).Kind);
     }
 }

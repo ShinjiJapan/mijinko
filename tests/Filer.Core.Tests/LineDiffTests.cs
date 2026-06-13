@@ -90,6 +90,39 @@ public class LineDiffTests
     }
 
     [Fact]
+    public void Compute_LargeIdenticalWithSingleMiddleChange_IsTrimmedAndPrecise()
+    {
+        // 共通の前後を持つ大きなファイルでも、共通の prefix/suffix をトリムして中央だけ差分する。
+        var left = Enumerable.Range(0, 5000).Select(i => $"line {i}").ToArray();
+        var right = (string[])left.Clone();
+        right[2500] = "CHANGED";
+
+        var rows = LineDiff.Compute(left, right);
+
+        Assert.Equal(5000, rows.Count);
+        Assert.Single(rows, r => r.Kind != DiffRowKind.Equal);
+        var changed = rows.Single(r => r.Kind != DiffRowKind.Equal);
+        Assert.Equal(DiffRowKind.Modified, changed.Kind);
+        Assert.Equal("line 2500", changed.LeftText);
+        Assert.Equal("CHANGED", changed.RightText);
+    }
+
+    [Fact]
+    public void Compute_HugeCompletelyDifferentMiddle_FallsBackToReplaceAll()
+    {
+        // 共通部分がなく積が上限を超える場合は、O(n*m) を避けて全置換(全行 Modified)へフォールバックする。
+        var left = Enumerable.Range(0, 3000).Select(i => $"L{i}").ToArray();
+        var right = Enumerable.Range(0, 3000).Select(i => $"R{i}").ToArray();
+
+        var rows = LineDiff.Compute(left, right);
+
+        Assert.Equal(3000, rows.Count);
+        Assert.All(rows, r => Assert.Equal(DiffRowKind.Modified, r.Kind));
+        Assert.Equal("L0", rows[0].LeftText);
+        Assert.Equal("R0", rows[0].RightText);
+    }
+
+    [Fact]
     public void Compute_UnevenChangeBlock_RemainderDeletedWhenLeftLonger()
     {
         var rows = LineDiff.Compute(Lines("a", "old1", "old2", "old3", "z"), Lines("a", "new", "z"));
