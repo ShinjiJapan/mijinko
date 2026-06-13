@@ -34,11 +34,25 @@ public static class DiffHtmlRenderer
                 DiffRowKind.Inserted => "inserted",
                 _ => "equal",
             };
+            string leftCell, rightCell;
+            if (row.Kind == DiffRowKind.Modified && row.LeftText is not null && row.RightText is not null)
+            {
+                // 変更行は文字単位で比較し、実際に変わった文字だけを <span class="chg"> で強調する。
+                var (leftSegs, rightSegs) = InlineDiff.Compute(row.LeftText, row.RightText);
+                leftCell = SegmentCell(leftSegs);
+                rightCell = SegmentCell(rightSegs);
+            }
+            else
+            {
+                leftCell = Cell(row.LeftText);
+                rightCell = Cell(row.RightText);
+            }
+
             sb.Append("<tr class=\"").Append(cls).Append("\">")
               .Append("<td class=\"n l\">").Append(Num(row.LeftNo)).Append("</td>")
-              .Append("<td class=\"s l\">").Append(Cell(row.LeftText)).Append("</td>")
+              .Append("<td class=\"s l\">").Append(leftCell).Append("</td>")
               .Append("<td class=\"n r\">").Append(Num(row.RightNo)).Append("</td>")
-              .Append("<td class=\"s r\">").Append(Cell(row.RightText)).Append("</td>")
+              .Append("<td class=\"s r\">").Append(rightCell).Append("</td>")
               .Append("</tr>\n");
         }
 
@@ -80,6 +94,21 @@ public static class DiffHtmlRenderer
         return text.Length == 0 ? "&nbsp;" : Esc(text);
     }
 
+    /// <summary>変更行のセル。変更区間を &lt;span class="chg"&gt; で包み、共通部分はそのまま出す。</summary>
+    private static string SegmentCell(IReadOnlyList<InlineSegment> segments)
+    {
+        if (segments.Count == 0) return "&nbsp;";
+        var sb = new StringBuilder();
+        foreach (var seg in segments)
+        {
+            if (seg.Changed)
+                sb.Append("<span class=\"chg\">").Append(Esc(seg.Text)).Append("</span>");
+            else
+                sb.Append(Esc(seg.Text));
+        }
+        return sb.ToString();
+    }
+
     private static string Esc(string s) => WebUtility.HtmlEncode(s);
 
     private static string BuildCss(ThemeColors c)
@@ -88,6 +117,10 @@ public static class DiffHtmlRenderer
         var (del, ins, mod, gutter) = c.IsDark
             ? ("#4B1818", "#15401C", "#4A3A12", "#2A2A2A")
             : ("#FFE0E0", "#DDFBE0", "#FFF4CC", "#F0F0F0");
+        // 変更行内の「変わった文字」だけを強調する色(左=削除寄りの赤 / 右=追加寄りの緑)。
+        var (delStrong, insStrong) = c.IsDark
+            ? ("#8B2B2B", "#2E7D38")
+            : ("#FFB3B3", "#9BE6A6");
         return $@"
 html, body {{ margin: 0; padding: 0; height: 100%; background: {c.Background}; color: {c.Foreground}; }}
 body {{ font-family: 'Consolas', 'MS Gothic', monospace; font-size: 13px; }}
@@ -105,6 +138,8 @@ th.side {{ width: calc(50% - 52px); }}
 tr.deleted td.s.l {{ background: {del}; }}
 tr.inserted td.s.r {{ background: {ins}; }}
 tr.modified td.s {{ background: {mod}; }}
+tr.modified td.s.l span.chg {{ background: {delStrong}; border-radius: 2px; }}
+tr.modified td.s.r span.chg {{ background: {insStrong}; border-radius: 2px; }}
 ";
     }
 

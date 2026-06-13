@@ -41,6 +41,30 @@ public class DiffHtmlRendererTests
         Assert.Contains(cssClass, html);
     }
 
+    [Fact]
+    public void ModifiedRow_HighlightsOnlyChangedCharsWithSpan()
+    {
+        var rows = LineDiff.Compute(new[] { "int x = 1;" }, new[] { "int x = 2;" });
+
+        var html = Render(rows);
+
+        // 変わった文字だけが span.chg で包まれ、共通部分は素のまま。
+        Assert.Contains("<span class=\"chg\">1</span>", html);
+        Assert.Contains("<span class=\"chg\">2</span>", html);
+        Assert.DoesNotContain("<span class=\"chg\">int", html);
+    }
+
+    [Fact]
+    public void ModifiedRow_EscapesInsideSpan()
+    {
+        var rows = LineDiff.Compute(new[] { "a=1" }, new[] { "a=<b>" });
+
+        var html = Render(rows);
+
+        Assert.Contains("<span class=\"chg\">&lt;b&gt;</span>", html);
+        Assert.DoesNotContain("<b>", html);
+    }
+
     [Theory]
     [InlineData(true, "同一")]
     [InlineData(false, "異なり")]
