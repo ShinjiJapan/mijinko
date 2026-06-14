@@ -90,4 +90,63 @@ public sealed class MarkdownRendererTests
         var html = MarkdownRenderer.ToHtmlDocument("a < b & c");
         Assert.Contains("&lt; b &amp; c", html);
     }
+
+    [Fact]
+    public void RebaseImages_RelativeMarkdownImage_RebasedAndRootIsMdDir()
+    {
+        var html = MarkdownRenderer.ToHtmlDocument("![x](pic.png)", ThemeColors.Dark);
+        var r = MarkdownRenderer.RebaseImages(html, @"C:\docs\sub", "https://filer.doc/");
+        Assert.Contains("src=\"https://filer.doc/pic.png\"", r.Html);
+        Assert.Equal(@"C:\docs\sub", r.MappedRoot);
+    }
+
+    [Fact]
+    public void RebaseImages_RawHtmlImage_AlsoRebased()
+    {
+        var html = MarkdownRenderer.ToHtmlDocument("<img src=\"img/pic.png\">", ThemeColors.Dark);
+        var r = MarkdownRenderer.RebaseImages(html, @"C:\docs\sub", "https://filer.doc/");
+        Assert.Contains("src=\"https://filer.doc/img/pic.png\"", r.Html);
+        Assert.Equal(@"C:\docs\sub", r.MappedRoot);
+    }
+
+    [Fact]
+    public void RebaseImages_ParentReference_RaisesRootToAncestor()
+    {
+        // ../img/pic.png は md フォルダーの親 (C:\docs) を共通祖先として解決する
+        var html = MarkdownRenderer.ToHtmlDocument("![x](../img/pic.png)", ThemeColors.Dark);
+        var r = MarkdownRenderer.RebaseImages(html, @"C:\docs\sub", "https://filer.doc/");
+        Assert.Contains("src=\"https://filer.doc/img/pic.png\"", r.Html);
+        Assert.Equal(@"C:\docs", r.MappedRoot);
+    }
+
+    [Fact]
+    public void RebaseImages_MixedSameDirAndParent_RootCoversBoth()
+    {
+        // 同階層画像 + 上位画像が混在 → ルートは親、同階層は sub/ 配下として表現される
+        var md = "![a](pic.png)\n\n![b](../img/q.png)";
+        var html = MarkdownRenderer.ToHtmlDocument(md, ThemeColors.Dark);
+        var r = MarkdownRenderer.RebaseImages(html, @"C:\docs\sub", "https://filer.doc/");
+        Assert.Equal(@"C:\docs", r.MappedRoot);
+        Assert.Contains("src=\"https://filer.doc/sub/pic.png\"", r.Html);
+        Assert.Contains("src=\"https://filer.doc/img/q.png\"", r.Html);
+    }
+
+    [Fact]
+    public void RebaseImages_LeavesAbsoluteUrlsAndDataUri()
+    {
+        var md = "![a](https://example.com/a.png)\n\n![b](data:image/png;base64,AAAA)";
+        var html = MarkdownRenderer.ToHtmlDocument(md, ThemeColors.Dark);
+        var r = MarkdownRenderer.RebaseImages(html, @"C:\docs\sub", "https://filer.doc/");
+        Assert.Contains("src=\"https://example.com/a.png\"", r.Html);
+        Assert.Contains("src=\"data:image/png;base64,AAAA\"", r.Html);
+        Assert.Null(r.MappedRoot);   // ローカル相対画像が無いのでマップ不要
+    }
+
+    [Fact]
+    public void RebaseImages_EncodesSpacesInPath()
+    {
+        var html = MarkdownRenderer.ToHtmlDocument("<img src=\"my pic.png\">", ThemeColors.Dark);
+        var r = MarkdownRenderer.RebaseImages(html, @"C:\docs", "https://filer.doc/");
+        Assert.Contains("src=\"https://filer.doc/my%20pic.png\"", r.Html);
+    }
 }

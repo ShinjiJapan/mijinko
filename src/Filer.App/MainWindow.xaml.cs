@@ -480,13 +480,15 @@ public partial class MainWindow : Window
             FocusActiveList();
         },
 
-        ["file.copy"] = () => Run(Vm.CopyToOther),   // コピーは確認なしで実行
+        ["file.copy"] = () => RunTransfer(FileTransferKind.Copy),   // コピーは確認なしで実行(非同期+進捗)
         ["file.move"] = () => ConfirmOrRun(Vm.Settings.ConfirmMove,
-            $"{Describe(Vm.Active)} を\n{Vm.Inactive.DirectoryPath}\nへ移動しますか?", Vm.MoveToOther),
+            $"{Describe(Vm.Active)} を\n{Vm.Inactive.DirectoryPath}\nへ移動しますか?",
+            () => RunTransfer(FileTransferKind.Move)),
         ["file.delete"] = () => ConfirmOrRun(Vm.Settings.ConfirmRecycle,
-            $"{Describe(Vm.Active)} をごみ箱へ送りますか?", Vm.DeleteTargets),
+            $"{Describe(Vm.Active)} をごみ箱へ送りますか?", () => RunDelete(DeleteKind.Recycle)),
         ["file.deletePermanent"] = () => ConfirmOrRun(Vm.Settings.ConfirmPermanentDelete,
-            $"{Describe(Vm.Active)} を完全に削除しますか?\nごみ箱には入らず、元に戻せません。", Vm.DeleteTargetsPermanently),
+            $"{Describe(Vm.Active)} を完全に削除しますか?\nごみ箱には入らず、元に戻せません。",
+            () => RunDelete(DeleteKind.Permanent)),
         ["file.rename"] = () => RenameInteractive(Vm.Active),
         ["file.bulkRename"] = () => BulkRenameInteractive(Vm.Active),
         ["folder.create"] = CreateFolderInteractive,
@@ -1456,6 +1458,76 @@ public partial class MainWindow : Window
         var dialog = new InputDialog("ZIP 圧縮", "圧縮後のファイル名:", defaultName) { Owner = this };
         if (dialog.ShowDialog() == true && !string.IsNullOrWhiteSpace(dialog.InputText))
             Run(() => Vm.CompressTargets(dialog.InputText));
+    }
+
+    /// <summary>
+    /// アクティブ側→非アクティブ側のコピー/移動を、進捗ダイアログ付きで非同期実行する。
+    /// 計画作成(対象確定・検証)は UI スレッド、実バイトコピーは背景スレッドで行い UI を固めない。
+    /// </summary>
+    private void RunTransfer(FileTransferKind kind)
+    {
+        // Vm は DependencyProperty。背景スレッドからの参照は不可のため UI スレッドでローカルへ捕捉する。
+        var vm = Vm;
+
+        FileTransferPlan plan;
+        try
+        {
+            plan = vm.BuildTransferPlan(kind);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "操作に失敗しました", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        if (plan.IsEmpty) return;
+
+        var title = kind == FileTransferKind.Copy ? "コピー" : "移動";
+        var dialog = new TransferProgressDialog(title, (progress, token) => vm.ExecuteTransfer(plan, kind, progress, token))
+        {
+            Owner = this
+        };
+        dialog.ShowDialog();
+
+        vm.Active.Reload();
+        vm.Inactive.Reload();
+        FocusActiveList();
+
+        if (dialog.Error is { } error)
+            MessageBox.Show(this, error.Message, "操作に失敗しました", MessageBoxButton.OK, MessageBoxImage.Warning);
+    }
+
+    /// <summary>
+    /// アクティブ側の対象を、進捗ダイアログ付きで非同期削除する(ごみ箱送り/完全削除)。
+    /// 対象確定・検証は UI スレッド、実削除は背景スレッドで行い UI を固めない。
+    /// </summary>
+    private void RunDelete(DeleteKind kind)
+    {
+        var vm = Vm;   // Vm は DependencyProperty。背景スレッドから触れないようローカルへ捕捉する。
+
+        FileDeletePlan plan;
+        try
+        {
+            plan = vm.BuildDeletePlan(kind);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "操作に失敗しました", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        if (plan.IsEmpty) return;
+
+        var title = kind == DeleteKind.Recycle ? "ごみ箱へ移動" : "完全削除";
+        var dialog = new TransferProgressDialog(title, (progress, token) => vm.ExecuteDelete(plan, kind, progress, token))
+        {
+            Owner = this
+        };
+        dialog.ShowDialog();
+
+        vm.Active.Reload();
+        FocusActiveList();
+
+        if (dialog.Error is { } error)
+            MessageBox.Show(this, error.Message, "操作に失敗しました", MessageBoxButton.OK, MessageBoxImage.Warning);
     }
 
     /// <summary>ファイル操作を実行し、失敗はダイアログで通知する(握りつぶさない)。</summary>

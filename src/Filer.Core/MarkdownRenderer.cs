@@ -1,4 +1,7 @@
+using System.IO;
+using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using Markdig;
 using Markdig.Renderers;
 using Markdig.Renderers.Html;
@@ -51,6 +54,78 @@ public static class MarkdownRenderer
         sb.Append("</body>\n</html>\n");
         return sb.ToString();
     }
+
+    /// <summary>画像書き換えの結果。<see cref="Html"/> は書き換え後 HTML、
+    /// <see cref="MappedRoot"/> は仮想ホストへマップすべきルートフォルダー(相対画像が無ければ null)。</summary>
+    public readonly record struct ImageRebaseResult(string Html, string? MappedRoot);
+
+    // <img ... src="値"> の src 属性を抜き出す(値はダブルクオート前提。Markdig 出力もこの形)。
+    private static readonly Regex ImgSrcPattern =
+        new(@"(<img\b[^>]*?\bsrc="")([^""]*)""", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>
+    /// HTML 中の相対パス画像 <c>&lt;img src&gt;</c> を、<paramref name="baseDir"/>(md ファイルのフォルダー)
+    /// 基準で絶対パスへ解決し、<paramref name="hostBaseUrl"/>(末尾 <c>/</c>)配下の URL へ書き換える。
+    /// 上位参照(<c>../</c>)も解決できるよう、md フォルダーと全参照画像の共通祖先フォルダーをマップ対象とし
+    /// <see cref="ImageRebaseResult.MappedRoot"/> に返す。絶対 URL・data:・ルート絶対・アンカー・絶対パス・
+    /// 別ドライブの画像は書き換えない。相対画像が無ければ <see cref="ImageRebaseResult.MappedRoot"/> は null。
+    /// </summary>
+    public static ImageRebaseResult RebaseImages(string html, string baseDir, string hostBaseUrl)
+    {
+        var drive = Path.GetPathRoot(baseDir);
+        string? root = null;
+        foreach (Match m in ImgSrcPattern.Matches(html))
+        {
+            var abs = ResolveLocalImage(m.Groups[2].Value, baseDir, drive);
+            if (abs is null) continue;
+            var dir = Path.GetDirectoryName(abs)!;
+            // md フォルダー自身も祖先に織り込み、公開ルートが必ず md ファイルを含むようにする。
+            root = CommonDir(root ?? baseDir, dir);
+        }
+        if (root is null) return new ImageRebaseResult(html, null);
+
+        var mapped = root;
+        var rewritten = ImgSrcPattern.Replace(html, m =>
+        {
+            var abs = ResolveLocalImage(m.Groups[2].Value, baseDir, drive);
+            if (abs is null) return m.Value;
+            var rel = Path.GetRelativePath(mapped, abs).Replace('\\', '/');
+            var url = hostBaseUrl + string.Join('/', rel.Split('/').Select(Uri.EscapeDataString));
+            return $"{m.Groups[1].Value}{url}\"";
+        });
+        return new ImageRebaseResult(rewritten, mapped);
+    }
+
+    /// <summary>相対パス画像なら <paramref name="baseDir"/> 基準の絶対パスを返す。対象外なら null。</summary>
+    private static string? ResolveLocalImage(string src, string baseDir, string? drive)
+    {
+        if (!IsRelativeResource(src)) return null;
+        var unescaped = Uri.UnescapeDataString(src);
+        if (Path.IsPathRooted(unescaped)) return null;   // C:\ や \\server 等の絶対指定は対象外
+        var abs = Path.GetFullPath(Path.Combine(baseDir, unescaped));
+        // 別ドライブへ抜ける画像は同一ルートにまとめられないため対象外。
+        return string.Equals(Path.GetPathRoot(abs), drive, StringComparison.OrdinalIgnoreCase) ? abs : null;
+    }
+
+    /// <summary>同一ドライブの2フォルダーの共通祖先フォルダーを返す。</summary>
+    private static string CommonDir(string a, string b)
+    {
+        var sa = a.TrimEnd('\\', '/').Split('\\', '/');
+        var sb = b.TrimEnd('\\', '/').Split('\\', '/');
+        var n = Math.Min(sa.Length, sb.Length);
+        var i = 0;
+        while (i < n && string.Equals(sa[i], sb[i], StringComparison.OrdinalIgnoreCase)) i++;
+        var joined = string.Join('\\', sa.Take(i));
+        return joined.EndsWith(':') ? joined + '\\' : joined;   // ドライブのみ("C:")はルート("C:\")に整える
+    }
+
+    /// <summary>書き換え対象の相対参照か(絶対 URL・data:・ルート絶対・アンカーは対象外)。</summary>
+    private static bool IsRelativeResource(string url) =>
+        !string.IsNullOrEmpty(url)
+        && url[0] != '#'
+        && url[0] != '/'
+        && !url.StartsWith("data:", StringComparison.OrdinalIgnoreCase)
+        && !Uri.IsWellFormedUriString(url, UriKind.Absolute);
 
     /// <summary>テーマ配色から CSS を生成する。</summary>
     private static string BuildCss(ThemeColors c) => $@"

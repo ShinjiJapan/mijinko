@@ -13,6 +13,12 @@ internal static class PreviewWebHost
     /// <summary>仮想ホスト名(作業フォルダーを https オリジンとして公開するときのホスト)。</summary>
     public const string Host = "filer.preview";
 
+    /// <summary>
+    /// Markdown が参照する画像など、表示対象ファイル自身のフォルダーを公開する仮想ホスト名。
+    /// 相対パス画像を解決するため、<see cref="Host"/>(作業フォルダー)とは別に張る。
+    /// </summary>
+    public const string DocHost = "filer.doc";
+
     /// <summary>%LocalAppData%\Filer を確保して返す。</summary>
     public static string FilerLocalDir()
     {

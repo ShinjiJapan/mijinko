@@ -19,6 +19,7 @@ namespace Filer.App;
 public partial class PreviewWindow : Window
 {
     private const string PreviewHost = PreviewWebHost.Host;
+    private const string DocHost = PreviewWebHost.DocHost;
 
     private readonly MainViewModel _main;
     private readonly PaneViewModel _pane;
@@ -31,6 +32,8 @@ public partial class PreviewWindow : Window
     private bool _webViewReady;
     // 仮想ホストにフォルダーをマップ済みか(レンダリング対象が変わるたびに張り替える)。
     private bool _hostMapped;
+    // 表示対象自身のフォルダー(Markdown の相対画像解決用)をマップ済みか。
+    private bool _docMapped;
     // 描画完了時に WebView へフォーカスを移すか。自前生成ページ(Markdig/highlight.js。S/Esc/F1 を
     // JS で受けネイティブスクロールさせる)は true、外部コンテンツ(HTML ブラウザ描画/PDF)は false。
     private bool _focusWebViewOnLoad;
@@ -175,9 +178,10 @@ public partial class PreviewWindow : Window
 
     /// <summary>
     /// WebView2 環境を生成・初期化し、仮想ホストへ <paramref name="hostDir"/> をマップして CoreWebView2 を返す。
+    /// <paramref name="docDir"/> を与えると <see cref="DocHost"/> をそのフォルダーへマップする(相対画像の解決用)。
     /// メッセージ購読は初回のみ行う。マップは描画対象が変わるたびに張り替える。
     /// </summary>
-    private async Task<CoreWebView2> EnsureWebViewMappedAsync(string hostDir)
+    private async Task<CoreWebView2> EnsureWebViewMappedAsync(string hostDir, string? docDir = null)
     {
         // 環境生成と初期化は初回のみ(再生成すると「別の環境で初期化済み」例外になる)。
         if (!_webViewReady)
@@ -200,6 +204,14 @@ public partial class PreviewWindow : Window
         if (_hostMapped) core.ClearVirtualHostNameToFolderMapping(PreviewHost);
         core.SetVirtualHostNameToFolderMapping(PreviewHost, hostDir, CoreWebView2HostResourceAccessKind.Allow);
         _hostMapped = true;
+
+        // 表示対象自身のフォルダー(相対画像の解決用)。対象が変わるたびに張り替える。
+        if (_docMapped) { core.ClearVirtualHostNameToFolderMapping(DocHost); _docMapped = false; }
+        if (docDir is not null)
+        {
+            core.SetVirtualHostNameToFolderMapping(DocHost, docDir, CoreWebView2HostResourceAccessKind.Allow);
+            _docMapped = true;
+        }
         return core;
     }
 
@@ -216,13 +228,21 @@ public partial class PreviewWindow : Window
         var previewDir = GetPreviewDir();
         EnsureMermaidScript(previewDir);
         CleanupOldPages(previewDir);
+        var html = MarkdownRenderer.ToHtmlDocument(markdown, ThemeManager.CurrentMarkdownColors());
+        // 実ファイルは相対画像(上位 ../ も含む)を解決し、必要なルートを仮想ホストへマップする。書庫内は対象外。
+        string? docRoot = null;
+        if (!ArchivePath.TrySplit(path, out _, out _) && Path.GetDirectoryName(path) is { } mdDir)
+        {
+            var rebased = MarkdownRenderer.RebaseImages(html, mdDir, $"https://{DocHost}/");
+            html = rebased.Html;
+            docRoot = rebased.MappedRoot;
+        }
         var pageName = $"page-{Guid.NewGuid():N}.html";
-        File.WriteAllText(Path.Combine(previewDir, pageName),
-            MarkdownRenderer.ToHtmlDocument(markdown, ThemeManager.CurrentMarkdownColors()));
+        File.WriteAllText(Path.Combine(previewDir, pageName), html);
 
         try
         {
-            var core = await EnsureWebViewMappedAsync(previewDir);
+            var core = await EnsureWebViewMappedAsync(previewDir, docRoot);
             core.Navigate($"https://{PreviewHost}/{pageName}");
         }
         catch (Exception ex)

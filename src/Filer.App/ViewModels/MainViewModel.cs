@@ -126,6 +126,32 @@ public sealed partial class MainViewModel : ObservableObject
         Inactive.Reload();
     }
 
+    /// <summary>
+    /// アクティブ側の対象を非アクティブ側へ転送する計画を作る(非同期コピー/移動用)。
+    /// 対象は UI スレッドで確定し、実行(<see cref="ExecuteTransfer"/>)は背景スレッドで行う。
+    /// 移動先が書庫内、または移動対象が書庫内項目なら例外で拒否する。
+    /// </summary>
+    public FileTransferPlan BuildTransferPlan(FileTransferKind kind)
+    {
+        var label = kind == FileTransferKind.Copy ? "コピー先のフォルダー" : "移動先のフォルダー";
+        EnsureNotInArchive(Inactive.DirectoryPath, label);
+
+        var sources = new List<string>();
+        foreach (var entry in Active.Targets.ToArray())
+        {
+            if (kind == FileTransferKind.Move)
+                EnsureNotInsideArchive(entry.FullPath, "書庫内の項目（移動。コピーを使用してください）");
+            sources.Add(entry.FullPath);
+        }
+        return FileTransferService.BuildPlan(sources, Inactive.DirectoryPath, kind);
+    }
+
+    /// <summary>転送計画を実行する(背景スレッドから呼ぶ)。進捗通知・キャンセルに対応。</summary>
+    public void ExecuteTransfer(
+        FileTransferPlan plan, FileTransferKind kind,
+        IProgress<FileTransferProgress> progress, CancellationToken token)
+        => FileTransferService.Execute(plan, kind, progress, token);
+
     /// <summary>アクティブ側の対象を非アクティブ側のディレクトリへ移動する。書庫内項目は不可。</summary>
     public void MoveToOther()
     {
@@ -138,6 +164,27 @@ public sealed partial class MainViewModel : ObservableObject
         Active.Reload();
         Inactive.Reload();
     }
+
+    /// <summary>
+    /// アクティブ側の削除対象の計画を作る(非同期削除用)。対象は UI スレッドで確定する。
+    /// 書庫内項目は削除不可のため例外で拒否する。
+    /// </summary>
+    public FileDeletePlan BuildDeletePlan(DeleteKind kind)
+    {
+        var sources = new List<string>();
+        foreach (var entry in Active.Targets.ToArray())
+        {
+            EnsureNotInsideArchive(entry.FullPath, "書庫内の項目（削除）");
+            sources.Add(entry.FullPath);
+        }
+        return FileDeleteService.BuildPlan(sources, kind);
+    }
+
+    /// <summary>削除計画を実行する(背景スレッドから呼ぶ)。進捗通知・キャンセルに対応。</summary>
+    public void ExecuteDelete(
+        FileDeletePlan plan, DeleteKind kind,
+        IProgress<FileTransferProgress> progress, CancellationToken token)
+        => FileDeleteService.Execute(plan, kind, progress, token);
 
     /// <summary>アクティブ側の対象をごみ箱へ送る(復元可能)。書庫内項目は不可。</summary>
     public void DeleteTargets()
