@@ -79,11 +79,20 @@ public partial class MainWindow : Window
     /// <summary>(キー, 修飾) → アクション Id。設定から構築する。</summary>
     private readonly Dictionary<(Key, ModifierKeys), string> _keyToAction = new();
 
+    /// <summary>ターミナルにフォーカスがある間でもファイラー側で処理してよいアクション Id(これ以外は端末へ委ねる)。</summary>
+    private static readonly HashSet<string> TerminalContextActions = new()
+    {
+        "terminal.focusBack", "terminal.collapse",
+    };
+
     /// <summary>組み込みアクション Id → 実行処理(固定)。</summary>
     private readonly Dictionary<string, Action> _builtinActions;
 
     /// <summary>有効なアクション Id → 実行処理(組み込み + 外部ツール。設定変更で作り直す)。</summary>
     private Dictionary<string, Action> _actions = new();
+
+    /// <summary>現在のキー割り当て表(コマンドパレットの一覧・ジェスチャ表示に使う)。</summary>
+    private KeyBindingMap? _keyMap;
 
     private string _normalKeyHelp = "", _ctrlKeyHelp = "", _shiftKeyHelp = "";
 
@@ -92,6 +101,7 @@ public partial class MainWindow : Window
     {
         var toolActions = Vm.Settings.Tools.Select(KeyBindingActions.ForTool).ToList();
         var map = KeyBindingMap.Build(Vm.Settings.KeyBindingOverrides, toolActions);
+        _keyMap = map;
 
         // アクション実行表 = 組み込み + 各外部ツール起動。
         _actions = new Dictionary<string, Action>(_builtinActions);
@@ -396,6 +406,22 @@ public partial class MainWindow : Window
             return;
 
         var modifiers = Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt);
+
+        // ターミナル(WebView2)にフォーカスがある間は、端末専用キー(一覧へ戻る/たたむ)だけ処理し、
+        // それ以外のキー(矢印・Tab・ファンクション等。既定では端末へ届かずファイラーが奪っていた)は
+        // 一切処理せず端末へ委ねる。Ctrl+T/F1 は terminal.html 側の JS が処理する。
+        if (e.OriginalSource is Microsoft.Web.WebView2.Wpf.WebView2)
+        {
+            if (_keyToAction.TryGetValue((key, modifiers), out var termId) &&
+                TerminalContextActions.Contains(termId) &&
+                _actions.TryGetValue(termId, out var termAction))
+            {
+                termAction();
+                e.Handled = true;
+            }
+            return;
+        }
+
         Action? action = null;
         var resolved = _keyToAction.TryGetValue((key, modifiers), out var actionId) &&
             _actions.TryGetValue(actionId, out action);
@@ -453,8 +479,8 @@ public partial class MainWindow : Window
         },
         ["view.toggleFullscreen"] = () =>
         {
-            // 表示の通常⇄全画面トグル。ターミナルが開いていれば端末を、なければファイルペインを対象。
-            if (TerminalOpen) CycleTerminalView();
+            // 表示の通常⇄全画面トグル。ターミナルが表示中なら端末を、なければファイルペインを対象。
+            if (TerminalVisible) CycleTerminalView();
             else CyclePaneLayout();
         },
         ["view.toggleGrid"] = ToggleGridView,             // 詳細 ⇔ サムネイルグリッド表示
@@ -508,14 +534,17 @@ public partial class MainWindow : Window
 
         ["terminal.open"] = OpenOrFocusTerminal,         // ターミナルを開く/フォーカス
         ["terminal.pick"] = OpenTerminalWithPicker,      // 種類を選んでターミナル
+        ["terminal.focusBack"] = FocusActiveList,        // ターミナル中: 一覧へフォーカスを戻す
+        ["terminal.collapse"] = CollapseTerminal,        // ターミナル中: 表示をたたむ(セッション保持)
 
         ["settings.open"] = ShowSettingsDialog,
+        ["palette.show"] = ShowCommandPalette,            // すべてのコマンドを検索して実行
     };
 
     /// <summary>Tab: ペイン切替。ターミナル表示中は一覧→ターミナルへフォーカスを移す(タブ切替は Ctrl+←/→)。</summary>
     private void SwitchPaneOrFocusTerminal()
     {
-        if (TerminalOpen)
+        if (TerminalVisible)
         {
             _terminalPanel!.FocusActiveTerminal();
         }
@@ -851,6 +880,46 @@ public partial class MainWindow : Window
     }
 
     /// <summary>S: ソート方法・昇降順を選び、アクティブ側に適用する。</summary>
+    /// <summary>
+    /// コマンドパレットを開く。現在のキー割り当てから実行可能な全コマンド(組み込み + 外部ツール)を
+    /// 一覧化し、選ばれたアクションをそのまま実行する。
+    /// </summary>
+    private void ShowCommandPalette()
+    {
+        if (_keyMap is null) return;
+
+        var items = new List<CommandPaletteItem>();
+        foreach (var action in _keyMap.Actions)
+        {
+            if (action.Id == "palette.show") continue;       // パレット自身は出さない
+            if (!_actions.ContainsKey(action.Id)) continue;  // 実行処理が無いものは除外
+            items.Add(new CommandPaletteItem(
+                action.Id, action.DisplayName, action.Category, GestureDisplay(action.Id)));
+        }
+
+        var dialog = new CommandPaletteDialog(items) { Owner = this };
+        if (dialog.ShowDialog() == true && dialog.SelectedId is { } id &&
+            _actions.TryGetValue(id, out var run))
+        {
+            run();   // 選ばれたコマンドを実行(各処理が必要に応じて FocusActiveList する)
+        }
+        else
+        {
+            FocusActiveList();
+        }
+    }
+
+    /// <summary>アクションに割り当てられたジェスチャを表示用文字列にする(複数は空白区切り。無ければ空)。</summary>
+    private string GestureDisplay(string actionId)
+    {
+        if (_keyMap is null) return "";
+        var parts = new List<string>();
+        foreach (var gesture in _keyMap.GesturesFor(actionId))
+            if (KeyChord.TryParse(gesture, out var chord))
+                parts.Add(chord.DisplayText);
+        return string.Join(" ", parts);
+    }
+
     private void ShowSortDialog()
     {
         var pane = Vm.Active;
@@ -872,8 +941,11 @@ public partial class MainWindow : Window
     /// <summary>1画面表示時にどちら側の列を占有するか(初回オープン時に非アクティブ側へ決定)。</summary>
     private bool _terminalOnLeft;
 
-    /// <summary>ターミナルがオープン中(タブが1つ以上ある=画面に表示中)か。</summary>
+    /// <summary>ターミナルがオープン中(タブが1つ以上ある)。たたんで非表示中でもセッションが生きていれば true。</summary>
     private bool TerminalOpen => _terminalPanel is { TabCount: > 0 };
+
+    /// <summary>ターミナルが画面に表示されている(オープン中かつオーバーレイが可視)か。</summary>
+    private bool TerminalVisible => TerminalOpen && TerminalHost.Visibility == Visibility.Visible;
 
     /// <summary>前回開いたターミナル種別を記憶し、次回の既定にする(永続化)。</summary>
     private readonly TerminalPreferenceStore _terminalPrefs = new(Path.Combine(
@@ -900,11 +972,12 @@ public partial class MainWindow : Window
         return profiles.FirstOrDefault(p => p.Name == last) ?? profiles[0];
     }
 
-    /// <summary>T: ターミナルを開く/フォーカスする。前回の種別で起動する。</summary>
+    /// <summary>T: ターミナルを開く/フォーカスする。たたまれていれば再表示し、なければ前回の種別で起動する。</summary>
     private void OpenOrFocusTerminal()
     {
         if (TerminalOpen)
         {
+            if (!TerminalVisible) ApplyTerminalView();   // F4 でたたまれていたら再表示(セッションは生存)
             _terminalPanel!.FocusActiveTerminal();
             return;
         }
@@ -954,6 +1027,14 @@ public partial class MainWindow : Window
             : TerminalView.FullScreen;
         ApplyTerminalView();
         _terminalPanel!.FocusActiveTerminal();
+    }
+
+    /// <summary>F4: ターミナル表示をたたむ(セッションは終了せず保持。T で再表示できる)。一覧へフォーカスを戻す。</summary>
+    private void CollapseTerminal()
+    {
+        if (!TerminalOpen) return;
+        TerminalHost.Visibility = Visibility.Collapsed;
+        FocusActiveList();
     }
 
     /// <summary>ターミナルパネルを(未生成なら)作り、オーバーレイのホストへ一度だけ載せる。</summary>

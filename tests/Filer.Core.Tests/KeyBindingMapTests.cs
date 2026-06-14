@@ -55,6 +55,16 @@ public sealed class KeyBindingMapTests
     }
 
     [Fact]
+    public void Build_NoOverrides_ResolvesTerminalContextActions()
+    {
+        // ターミナルフォーカス中の専用キー。空きキー(F4/F6)に割り当て、既存の F5(更新)は不変。
+        var map = KeyBindingMap.Build(null);
+        Assert.Equal("terminal.collapse", map.TryResolve("F4"));
+        Assert.Equal("terminal.focusBack", map.TryResolve("F6"));
+        Assert.Equal("view.reload", map.TryResolve("F5"));
+    }
+
+    [Fact]
     public void TryResolve_IsCaseInsensitive()
     {
         var map = KeyBindingMap.Build(null);
