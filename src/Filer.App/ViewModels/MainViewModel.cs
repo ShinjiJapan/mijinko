@@ -196,6 +196,31 @@ public sealed partial class MainViewModel : ObservableObject
         Active.Reload();
     }
 
+    /// <summary>
+    /// アクティブ側で複数項目を一括リネームする。書庫内項目は不可。
+    /// 名前の入れ替えや連番のずれで途中衝突しないよう、いったん一時名へ変えてから最終名へ付け替える(2フェーズ)。
+    /// </summary>
+    public void BulkRename(IReadOnlyList<(string FullPath, string NewName)> renames)
+    {
+        if (renames.Count == 0) return;
+        foreach (var (fullPath, _) in renames)
+            EnsureNotInsideArchive(fullPath, "書庫内の項目（一括リネーム）");
+
+        var temps = new List<(string TempPath, string NewName)>(renames.Count);
+        var n = 0;
+        foreach (var (fullPath, newName) in renames)
+        {
+            var dir = Path.GetDirectoryName(fullPath)!;
+            var tempName = $".__filer_rename_{n++}__";
+            _ops.Rename(fullPath, tempName);
+            temps.Add((Path.Combine(dir, tempName), newName));
+        }
+        foreach (var (tempPath, newName) in temps)
+            _ops.Rename(tempPath, newName);
+
+        Active.Reload();
+    }
+
     /// <summary>アクティブ側の現在フォルダー直下に新規フォルダーを作成し、作成したフォルダーへ移動する。書庫内は不可。</summary>
     public void CreateDirectoryInActive(string name)
     {
@@ -257,6 +282,12 @@ public sealed partial class MainViewModel : ObservableObject
 
     /// <summary>お気に入りグループを中身ごと削除する。</summary>
     public void RemoveFavoriteGroup(string groupPath) => _favorites.RemoveGroup(groupPath);
+
+    /// <summary>お気に入り項目を同じ階層内で上下に移動する(ショートカット番号の変更)。動いたら true。</summary>
+    public bool MoveFavorite(string path, int delta) => _favorites.MoveItem(path, delta);
+
+    /// <summary>お気に入りグループを同じ階層内で上下に移動する。動いたら true。</summary>
+    public bool MoveFavoriteGroup(string groupPath, int delta) => _favorites.MoveGroup(groupPath, delta);
 
     /// <summary>アクティブ側を指定パスへ移動する。</summary>
     public void NavigateActiveTo(string path) => Active.NavigateTo(path);

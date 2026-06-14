@@ -16,7 +16,10 @@ public sealed record SelectionEntry(string Display, string Value, IReadOnlyList<
 {
     public bool IsGroup => Children is not null;
 
-    /// <summary>グループ行の「›」マーカー表示(DataTemplate からバインド)。</summary>
+    /// <summary>numbered 表示時の番号プレフィックス("3. " など)。非 numbered・10件目以降は空。</summary>
+    public string Number { get; init; } = "";
+
+    /// <summary>グループ行のマーカー(フォルダーアイコン・「›」)の表示(DataTemplate からバインド)。</summary>
     public Visibility ChevronVisibility => IsGroup ? Visibility.Visible : Visibility.Collapsed;
 }
 
@@ -39,11 +42,15 @@ public partial class SelectionDialog : Window
     /// <summary>編集・削除ボタンの表示有無(DataTemplate からバインド)。</summary>
     public Visibility EditButtonsVisibility { get; }
 
+    /// <summary>並べ替え(↑↓)ボタンの表示有無(DataTemplate からバインド)。</summary>
+    public Visibility ReorderButtonsVisibility { get; }
+
     private readonly bool _numbered;
     private readonly bool _letterSelect;
     private readonly Func<IReadOnlyList<SelectionEntry>>? _reload;
     private readonly Action<Window, string>? _onEdit;
     private readonly Action<Window, string>? _onDelete;
+    private readonly Func<string, int, bool>? _onReorder;
     private readonly string _basePrompt;
 
     private IReadOnlyList<SelectionEntry> _root;
@@ -55,7 +62,8 @@ public partial class SelectionDialog : Window
         bool letterSelect = false,
         Func<IReadOnlyList<SelectionEntry>>? reload = null,
         Action<Window, string>? onEdit = null,
-        Action<Window, string>? onDelete = null)
+        Action<Window, string>? onDelete = null,
+        Func<string, int, bool>? onReorder = null)
     {
         InitializeComponent();
         // 文字入力欄はなくキー選択のみ。日本語入力 ON でも数字・ドライブ文字キーが効くよう IME を無効化する。
@@ -67,10 +75,13 @@ public partial class SelectionDialog : Window
         _reload = reload;
         _onEdit = onEdit;
         _onDelete = onDelete;
+        _onReorder = onReorder;
         _root = entries;
 
         var editable = reload != null && onEdit != null && onDelete != null;
         EditButtonsVisibility = editable ? Visibility.Visible : Visibility.Collapsed;
+        // 並べ替えは reload で一覧を再構築できることが前提。
+        ReorderButtonsVisibility = onReorder != null && reload != null ? Visibility.Visible : Visibility.Collapsed;
 
         RefreshList();
         HelpText.Text = BuildHelpText(ContainsGroup(entries));
@@ -90,6 +101,8 @@ public partial class SelectionDialog : Window
             parts.Add("→:グループを開く");
         if (hierarchical)
             parts.Add("←/BS:戻る");
+        if (_onReorder != null)
+            parts.Add("Ctrl+↑↓:並べ替え");
         parts.Add("Esc:キャンセル");
         return string.Join("  ", parts);
     }
@@ -107,7 +120,7 @@ public partial class SelectionDialog : Window
         var entries = CurrentEntries;
         List.ItemsSource = _numbered
             ? entries.Select((e, i) =>
-                i < MaxNumbered ? e with { Display = $"{i + 1}. {e.Display}" } : e).ToList()
+                i < MaxNumbered ? e with { Number = $"{i + 1}. " } : e).ToList()
             : entries;
 
         if (List.Items.Count > 0)
@@ -123,6 +136,14 @@ public partial class SelectionDialog : Window
         base.OnPreviewKeyDown(e);
         switch (e.Key)
         {
+            case Key.Up when (Keyboard.Modifiers & ModifierKeys.Control) != 0:
+                MoveSelected(-1);
+                e.Handled = true;
+                break;
+            case Key.Down when (Keyboard.Modifiers & ModifierKeys.Control) != 0:
+                MoveSelected(1);
+                e.Handled = true;
+                break;
             case Key.Enter:
                 ActivateSelection();
                 e.Handled = true;
@@ -251,6 +272,42 @@ public partial class SelectionDialog : Window
         RefreshList(index);
     }
 
+    private void MoveUp_Click(object sender, RoutedEventArgs e) => MoveRow(sender, -1, e);
+
+    private void MoveDown_Click(object sender, RoutedEventArgs e) => MoveRow(sender, 1, e);
+
+    /// <summary>↑↓ ボタン: その行を選択してから上下に移動する(選択は移動先へ追従)。</summary>
+    private void MoveRow(object sender, int delta, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is SelectionEntry entry)
+        {
+            var index = IndexOfValue(entry.Value);
+            if (index >= 0)
+                List.SelectedIndex = index;
+            MoveSelected(delta);
+        }
+        e.Handled = true;
+    }
+
+    /// <summary>選択中の行を delta だけ上下へ移動し、選択を移動先へ追従させる。</summary>
+    private void MoveSelected(int delta)
+    {
+        if (_onReorder is null || List.SelectedItem is not SelectionEntry entry)
+            return;
+        var index = List.SelectedIndex;
+        if (_onReorder(entry.Value, delta))
+            ReloadKeepingLocation(index + delta);
+    }
+
+    /// <summary>現在表示中の一覧で Value が一致する行の位置(無ければ -1)。</summary>
+    private int IndexOfValue(string value)
+    {
+        for (var i = 0; i < List.Items.Count; i++)
+            if (List.Items[i] is SelectionEntry e && e.Value == value)
+                return i;
+        return -1;
+    }
+
     private void Edit_Click(object sender, RoutedEventArgs e)
     {
         if ((sender as FrameworkElement)?.DataContext is not SelectionEntry entry || _onEdit is null)
@@ -269,12 +326,13 @@ public partial class SelectionDialog : Window
         e.Handled = true;
     }
 
-    /// <summary>一覧を再取得し、表示中の階層位置を Value で辿り直す(消えた階層はその手前まで)。</summary>
-    private void ReloadKeepingLocation()
+    /// <summary>一覧を再取得し、表示中の階層位置を Value で辿り直す(消えた階層はその手前まで)。
+    /// targetIndex 指定時はその位置を選択する(並べ替えで移動先へ追従させる用)。</summary>
+    private void ReloadKeepingLocation(int? targetIndex = null)
     {
         if (_reload is null)
             return;
-        var keepIndex = List.SelectedIndex;
+        var keepIndex = targetIndex ?? List.SelectedIndex;
         var groupValues = _groupStack.Select(g => g.Value).ToList();
         var oldIndexes = _indexStack.ToList();
         _root = _reload();

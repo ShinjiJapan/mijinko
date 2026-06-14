@@ -37,6 +37,9 @@ public partial class FileSearchDialog : Window
     /// <summary>直近の検索が内容検索(grep)だったか(ファイル名検索なら false)。</summary>
     private bool _isContentSearch;
 
+    /// <summary>一度でも検索を開始したか。Enter の動作(検索開始/転送して閉じる)の切り替えに使う。</summary>
+    private bool _searchStarted;
+
     /// <summary>
     /// 高速検索(昇格ヘルパー)。null なら通常走査のみ。非 null なら「検索開始」が昇格ヘルパー経由になる。
     /// 管理者起動時、または設定で高速検索を無効化したときは呼び出し側が null を渡す。
@@ -141,6 +144,7 @@ public partial class FileSearchDialog : Window
     private async Task RunSearchAsync(FileSearchOptions options, bool elevated)
     {
         var cts = _cts = new CancellationTokenSource();
+        _searchStarted = true;
         _isContentSearch = false;
         PreviewPanel.Visibility = Visibility.Collapsed;
         PreviewList.ItemsSource = null;
@@ -229,6 +233,7 @@ public partial class FileSearchDialog : Window
     private async Task RunContentSearchAsync(ContentSearchOptions options)
     {
         var cts = _cts = new CancellationTokenSource();
+        _searchStarted = true;
         _isContentSearch = true;
         PreviewPanel.Visibility = Visibility.Visible;
         PreviewList.ItemsSource = null;
@@ -342,12 +347,29 @@ public partial class FileSearchDialog : Window
 
     // ---- 閉じ方(転送・ジャンプ) ----
 
-    private async void Transfer_Click(object sender, RoutedEventArgs e)
+    private async void Transfer_Click(object sender, RoutedEventArgs e) => await TransferAndClose();
+
+    private async Task TransferAndClose()
     {
         await CancelRunningSearchAsync();   // 検索中なら中断し、その時点までの結果を転送する
         if (_results.Count == 0) return;
         TransferRequested = true;
         DialogResult = true;
+    }
+
+    /// <summary>
+    /// Enter の動作を状態で切り替える。未検索なら検索開始、検索中・検索後は「転送して閉じる」。
+    /// ボタンにフォーカスがある場合はそのボタン本来の動作に任せる。
+    /// </summary>
+    private async void Window_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        if (Keyboard.FocusedElement is Button) return;
+        e.Handled = true;
+        if (FileSearchInteraction.DecideEnterAction(_searchStarted) == FileSearchEnterAction.StartSearch)
+            await StartSearchAsync(elevated: _elevatedProxy is not null);
+        else
+            await TransferAndClose();
     }
 
     private async void Jump_Click(object sender, RoutedEventArgs e) => await JumpToSelection();

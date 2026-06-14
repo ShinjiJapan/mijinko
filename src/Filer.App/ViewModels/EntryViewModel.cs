@@ -82,6 +82,7 @@ public sealed partial class EntryViewModel : ObservableObject
 
     public string Name => Entry.Name;
     public bool IsDirectory => Entry.IsDirectory;
+    public bool IsArchive => Entry.IsArchive;
     public bool IsParent => Entry.IsParent;
 
     /// <summary>拡張子を除いた表示名(".."・ディレクトリ・拡張子なしは全体)。</summary>

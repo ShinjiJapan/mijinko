@@ -4,7 +4,8 @@
         WindowStartupLocation="CenterOwner"
         Width="660" Height="640" MinWidth="540" MinHeight="480"
         ResizeMode="CanResizeWithGrip" ShowInTaskbar="False"
-        Background="{DynamicResource Surface.Background}" Foreground="{DynamicResource Fg.Primary}" Title="ファイル検索 / 内容検索(grep)">
+        Background="{DynamicResource Surface.Background}" Foreground="{DynamicResource Fg.Primary}" Title="ファイル検索 / 内容検索(grep)"
+        PreviewKeyDown="Window_PreviewKeyDown">
     <Window.Resources>
         <!-- テーマ追従の基本コントロール(IncrementalSearchDialog と同じ見た目) -->
         <Style TargetType="Button">
@@ -87,7 +88,7 @@
             </StackPanel>
 
             <StackPanel Grid.Column="1" VerticalAlignment="Top">
-                <Button x:Name="SearchButton" Content="検索開始(_S)" Width="124" IsDefault="True" Click="Search_Click"/>
+                <Button x:Name="SearchButton" Content="検索開始(_S)" Width="124" Click="Search_Click"/>
                 <Button x:Name="TransferButton" Content="転送して閉じる(_T)" Width="124" Margin="0,6,0,0"
                         IsEnabled="False" Click="Transfer_Click"/>
                 <Button Content="閉じる(_C)" Width="124" Margin="0,6,0,0" IsCancel="True"/>

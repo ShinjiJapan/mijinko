@@ -19,6 +19,13 @@
   <ItemGroup>
     <!-- Markdown プレビュー用 mermaid.js をアセンブリへ埋め込み、実行時に展開する -->
     <EmbeddedResource Include="Assets\mermaid.min.js" />
+    <!-- コード/データプレビュー用 highlight.js 一式(実行時に展開する) -->
+    <EmbeddedResource Include="Assets\highlight\highlight.min.js" />
+    <EmbeddedResource Include="Assets\highlight\powershell.min.js" />
+    <EmbeddedResource Include="Assets\highlight\dos.min.js" />
+    <EmbeddedResource Include="Assets\highlight\apex.min.js" />
+    <EmbeddedResource Include="Assets\highlight\github-dark.min.css" />
+    <EmbeddedResource Include="Assets\highlight\github.min.css" />
     <!-- 組み込みターミナル用 xterm.js 一式(実行時に展開する) -->
     <EmbeddedResource Include="Assets\xterm\xterm.min.js" />
     <EmbeddedResource Include="Assets\xterm\xterm.css" />

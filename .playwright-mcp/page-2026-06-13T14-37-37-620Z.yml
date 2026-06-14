@@ -1,0 +1,6 @@
+- code [ref=e3]:
+  - text: "[ { \"bool\":"
+  - generic [ref=e4]: "true"
+  - text: ", \"array\": [ 1, 2 ], \"string\": \"message\", \"number\": 1 }, { \"bool\":"
+  - generic [ref=e5]: "false"
+  - text: ", \"array\": [ 100, 200 ], \"string\": \"text\", \"number\": 200 } ]"

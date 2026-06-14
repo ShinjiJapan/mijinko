@@ -18,12 +18,38 @@ public sealed class FilePreviewTests
 
     [Theory]
     [InlineData("readme.txt")]
-    [InlineData("data.json")]
-    [InlineData("config.yaml")]
-    [InlineData("Program.cs")]
-    public void ClassifyByExtension_TextExtensions_ReturnsText(string path)
+    [InlineData("run.log")]
+    [InlineData("data.csv")]
+    [InlineData("table.tsv")]
+    [InlineData(".gitignore")]
+    [InlineData(".editorconfig")]
+    [InlineData("App.sln")]
+    public void ClassifyByExtension_PlainTextExtensions_ReturnsText(string path)
     {
         Assert.Equal(PreviewKind.Text, FilePreview.ClassifyByExtension(path));
+    }
+
+    [Theory]
+    [InlineData("data.json")]
+    [InlineData("config.yaml")]
+    [InlineData("config.YML")]
+    [InlineData("settings.ini")]
+    [InlineData("Cargo.toml")]
+    [InlineData("Program.cs")]
+    [InlineData("App.xaml")]
+    [InlineData("build.csproj")]
+    [InlineData("doc.xml")]
+    [InlineData("style.css")]
+    [InlineData("main.ts")]
+    [InlineData("app.py")]
+    [InlineData("query.sql")]
+    [InlineData("deploy.ps1")]
+    [InlineData("run.bat")]
+    [InlineData("MyController.cls")]
+    [InlineData("anon.apex")]
+    public void ClassifyByExtension_CodeExtensions_ReturnsCode(string path)
+    {
+        Assert.Equal(PreviewKind.Code, FilePreview.ClassifyByExtension(path));
     }
 
     [Theory]
@@ -65,5 +91,26 @@ public sealed class FilePreviewTests
     public void ClassifyByExtension_Unsupported_ReturnsNone(string path)
     {
         Assert.Equal(PreviewKind.None, FilePreview.ClassifyByExtension(path));
+    }
+
+    // Markdown / HTML はデフォルトでソース表示(S でレンダリングへ切替)。
+    [Theory]
+    [InlineData(PreviewKind.Markdown)]
+    [InlineData(PreviewKind.Html)]
+    public void InitialSourceMode_MarkdownAndHtml_DefaultsToSource(PreviewKind kind)
+    {
+        Assert.True(FilePreview.InitialSourceMode(kind));
+    }
+
+    // Code はデフォルトでハイライト表示(レンダリング)。その他もレンダリング側を初期表示とする。
+    [Theory]
+    [InlineData(PreviewKind.Code)]
+    [InlineData(PreviewKind.Text)]
+    [InlineData(PreviewKind.Image)]
+    [InlineData(PreviewKind.Pdf)]
+    [InlineData(PreviewKind.None)]
+    public void InitialSourceMode_Others_DefaultsToRendered(PreviewKind kind)
+    {
+        Assert.False(FilePreview.InitialSourceMode(kind));
     }
 }

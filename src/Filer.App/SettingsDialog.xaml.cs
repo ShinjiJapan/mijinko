@@ -80,6 +80,24 @@ public partial class SettingsDialog : Window
         RefreshToolRows();
         UpdateButtonStates();
         UpdateToolButtonStates();
+
+        // 起動時は最初のタブのキー割り当て一覧へフォーカスし、先頭行を選んで
+        // すぐに矢印・Enter・Delete で操作できるようにする。
+        Loaded += (_, _) => FocusBindingList();
+    }
+
+    /// <summary>キー割り当て一覧へフォーカスし、未選択なら先頭行を選ぶ。</summary>
+    private void FocusBindingList()
+    {
+        if (BindingList.SelectedItem is null && BindingList.Items.Count > 0)
+            BindingList.SelectedIndex = 0;
+
+        BindingList.Focus();
+        if (BindingList.SelectedItem is { } selected &&
+            BindingList.ItemContainerGenerator.ContainerFromItem(selected) is ListViewItem item)
+        {
+            item.Focus();
+        }
     }
 
     private static ExternalTool Clone(ExternalTool t) =>
@@ -188,6 +206,21 @@ public partial class SettingsDialog : Window
     {
         if (_captureRow is null)
         {
+            // Ctrl+数字でタブを切り替える(Ctrl+Tab の標準操作に加えた直接ジャンプ)。
+            if ((Keyboard.Modifiers & ModifierKeys.Control) != 0 && TrySwitchTab(e.Key))
+            {
+                e.Handled = true;
+                return;
+            }
+
+            // 検索ボックスでの Enter は OK(既定ボタン)で閉じず、一覧へフォーカスを移す。
+            if (e.Key == Key.Enter && SearchBox.IsKeyboardFocusWithin)
+            {
+                BindingList.Focus();
+                e.Handled = true;
+                return;
+            }
+
             // 非キャプチャ時: 一覧上の Enter は「キーを変更」、Delete は「割り当て解除」。
             if (BindingList.IsKeyboardFocusWithin && SelectedRow is not null)
             {
@@ -215,6 +248,22 @@ public partial class SettingsDialog : Window
             AssignGesture(_captureRow, gesture, _captureAppend);
             EndCapture();
         }
+    }
+
+    /// <summary>Ctrl+数字キーならそのタブへ切り替える。切り替えたら true。</summary>
+    private bool TrySwitchTab(Key key)
+    {
+        var digit = key switch
+        {
+            >= Key.D1 and <= Key.D9 => key - Key.D1 + 1,
+            >= Key.NumPad1 and <= Key.NumPad9 => key - Key.NumPad1 + 1,
+            _ => 0,
+        };
+        if (digit == 0) return false;
+        var index = SettingsTabNavigation.IndexForDigit(digit, Tabs.Items.Count);
+        if (index < 0) return false;
+        Tabs.SelectedIndex = index;
+        return true;
     }
 
     /// <summary>ジェスチャを行へ割り当てる。他の操作と重複していたら確認して付け替える。</summary>

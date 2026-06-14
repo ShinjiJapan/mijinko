@@ -31,6 +31,9 @@ public partial class PreviewWindow : Window
     private bool _webViewReady;
     // 仮想ホストにフォルダーをマップ済みか(レンダリング対象が変わるたびに張り替える)。
     private bool _hostMapped;
+    // 描画完了時に WebView へフォーカスを移すか。自前生成ページ(Markdig/highlight.js。S/Esc/F1 を
+    // JS で受けネイティブスクロールさせる)は true、外部コンテンツ(HTML ブラウザ描画/PDF)は false。
+    private bool _focusWebViewOnLoad;
     /// <summary>表示形態(F1 / F で 全画面 ⇄ ペイン領域 をトグル)。</summary>
     private enum PreviewView { Maximized, PaneRegion }
     private PreviewView _view = PreviewView.Maximized;
@@ -45,6 +48,8 @@ public partial class PreviewWindow : Window
         _main = main;
         _pane = main.Active;
         _paneRegion = paneRegion;
+        // Markdown / HTML はソース表示で開く(S キーでレンダリングへ切替)。
+        _sourceMode = FilePreview.InitialSourceMode(FilePreview.ClassifyByExtension(_pane.SelectedItemPath));
         ShowCurrent();
     }
 
@@ -64,11 +69,17 @@ public partial class PreviewWindow : Window
         }
         if (kind == PreviewKind.Markdown)
         {
-            if (_sourceMode) LoadText(path); else _ = LoadMarkdownAsync(path);
+            // ソース表示は highlight.js でシンタックスハイライトする。
+            if (_sourceMode) _ = LoadCodeAsync(path); else _ = LoadMarkdownAsync(path);
         }
         else if (kind == PreviewKind.Html)
         {
-            if (_sourceMode) LoadText(path); else _ = LoadHtmlAsync(path);
+            if (_sourceMode) _ = LoadCodeAsync(path); else _ = LoadHtmlAsync(path);
+        }
+        else if (kind == PreviewKind.Code)
+        {
+            // Code はレンダリング自体がハイライト表示。ソースはハイライト無しの素のテキスト。
+            if (_sourceMode) LoadText(path); else _ = LoadCodeAsync(path);
         }
         else if (kind == PreviewKind.Pdf)
             _ = LoadPdfAsync(path);
@@ -76,7 +87,7 @@ public partial class PreviewWindow : Window
             LoadText(path);
 
         var name = Path.GetFileName(path);
-        InfoText.Text = _sourceMode && (kind == PreviewKind.Markdown || kind == PreviewKind.Html)
+        InfoText.Text = _sourceMode && IsToggleable(kind)
             ? $"{name}  [ソース]"
             : name;
         Title = $"プレビュー — {name}";
@@ -137,6 +148,9 @@ public partial class PreviewWindow : Window
         TextView.Visibility = Visibility.Visible;
         ImagePanel.Visibility = Visibility.Collapsed;
         MarkdownView.Visibility = Visibility.Collapsed;
+        // レンダリング(WebView)から S で切り替えた場合、フォーカスが隠れた WebView に残り
+        // 次の S が WPF へ届かない。TextView へ移して S/スクロールを効かせる。
+        TextView.Focus();
     }
 
     /// <summary>テキストを BOM 判定付きで読み込む(既定 UTF-8)。書庫内ファイルはストリームから読む。</summary>
@@ -173,10 +187,11 @@ public partial class PreviewWindow : Window
             var c = MarkdownView.CoreWebView2;
             // WebView2 にフォーカスがある間はキーが WPF 側へ届かないため、HTML 側の Esc/Enter 通知で閉じる。
             c.WebMessageReceived += OnWebViewMessage;
-            // Markdown レンダリング表示中のみ WebView へフォーカスを移し、↑↓等のネイティブスクロールを効かせる。
+            // 自前生成ページ(Markdig/highlight.js)では WebView へフォーカスを移し、↑↓等のネイティブ
+            // スクロールと JS 側の S/Esc/F1 処理を効かせる。外部コンテンツ(HTML/PDF)では移さない。
             c.NavigationCompleted += (_, _) =>
             {
-                if (_kind == PreviewKind.Markdown && !_sourceMode) MarkdownView.Focus();
+                if (_focusWebViewOnLoad) MarkdownView.Focus();
             };
             _webViewReady = true;
         }
@@ -195,6 +210,7 @@ public partial class PreviewWindow : Window
     private async Task LoadMarkdownAsync(string path)
     {
         ShowWebView();
+        _focusWebViewOnLoad = true;
 
         var markdown = ReadPreviewText(path);
         var previewDir = GetPreviewDir();
@@ -219,6 +235,37 @@ public partial class PreviewWindow : Window
     }
 
     /// <summary>
+    /// ソースコード/データ(JSON/XML/YAML 等)を highlight.js でシンタックスハイライト表示する。
+    /// JSON は表示前に整形する。Markdown と同様に HTML を作業フォルダーへ書き出し、仮想ホスト経由で
+    /// 同一オリジンとして表示する。highlight.js 一式とテーマ CSS はローカル同梱を読み込む。
+    /// </summary>
+    private async Task LoadCodeAsync(string path)
+    {
+        ShowWebView();
+        _focusWebViewOnLoad = true;
+
+        var code = CodeRenderer.FormatSource(path, ReadPreviewText(path));
+        var previewDir = GetPreviewDir();
+        EnsureHighlightAssets(previewDir);
+        CleanupOldPages(previewDir);
+        var pageName = $"page-{Guid.NewGuid():N}.html";
+        File.WriteAllText(Path.Combine(previewDir, pageName),
+            CodeRenderer.ToHtmlDocument(code, CodeRenderer.LanguageId(path), ThemeManager.CurrentMarkdownColors()));
+
+        try
+        {
+            var core = await EnsureWebViewMappedAsync(previewDir);
+            core.Navigate($"https://{PreviewHost}/{pageName}");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this,
+                $"コードプレビューを表示できません(WebView2 ランタイムが必要です)。\n{ex.Message}",
+                "プレビュー", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    /// <summary>
     /// HTML/XHTML/MHTML/SVG を WebView2 でレンダリング表示する。実ファイルは自身のフォルダーを
     /// 仮想ホストにマップし、相対参照の CSS/画像/JS も解決する。書庫内ファイルは単体ファイルとして
     /// 作業フォルダーへ展開して表示する(相対参照は再現しない)。PDF と同様 WebView へはフォーカスを
@@ -227,6 +274,7 @@ public partial class PreviewWindow : Window
     private async Task LoadHtmlAsync(string path)
     {
         ShowWebView();
+        _focusWebViewOnLoad = false;   // 外部 HTML はフォーカスを移さず WPF 側で Esc/スクロールを扱う。
 
         // 書庫内ファイルは単体ファイルとして作業フォルダーへ展開し、その実パスを使う。
         string hostDir, fileName, localPath;
@@ -350,14 +398,26 @@ public partial class PreviewWindow : Window
         }
     }
 
-    /// <summary>WebView2 内の通知(Esc/Enter=閉じる, F1=表示切替)を処理する(↑↓等はブラウザのスクロールに委ねる)。</summary>
+    /// <summary>
+    /// WebView2 内の通知(Esc/Enter=閉じる, F1=表示切替, S=ソース切替)を処理する(↑↓等はブラウザのスクロールに委ねる)。
+    /// Markdown/Code はレンダリング中に WebView がフォーカスを持つため、S は HTML 側から通知される。
+    /// </summary>
     private void OnWebViewMessage(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
         switch (e.TryGetWebMessageAsString())
         {
             case "close": Dispatcher.Invoke(Close); break;
             case "cycle-view": Dispatcher.Invoke(CyclePreviewView); break;
+            case "toggle-source": Dispatcher.Invoke(ToggleSource); break;
         }
+    }
+
+    /// <summary>レンダリング ⇄ ソース表示を切り替える(S キー)。</summary>
+    private void ToggleSource()
+    {
+        if (!IsToggleable(_kind)) return;
+        _sourceMode = !_sourceMode;
+        ShowCurrent();
     }
 
     private static string GetPreviewDir() => PreviewWebHost.PreviewDir();
@@ -372,18 +432,35 @@ public partial class PreviewWindow : Window
     }
 
     /// <summary>埋め込みの mermaid.min.js を作業フォルダーへ展開する(既に最新ならスキップ)。</summary>
-    private static void EnsureMermaidScript(string previewDir)
+    private static void EnsureMermaidScript(string previewDir) =>
+        ExtractEmbeddedResource("mermaid.min.js", Path.Combine(previewDir, "mermaid.min.js"));
+
+    /// <summary>
+    /// highlight.js 一式(本体・追加言語・テーマ CSS)を作業フォルダーへ展開する(既に最新ならスキップ)。
+    /// テーマ CSS はダーク/ライトの両方を hl-dark.css / hl-light.css として展開し、文書側が選んで読み込む。
+    /// </summary>
+    private static void EnsureHighlightAssets(string previewDir)
     {
-        var dest = Path.Combine(previewDir, "mermaid.min.js");
+        ExtractEmbeddedResource("highlight.min.js", Path.Combine(previewDir, "highlight.min.js"));
+        ExtractEmbeddedResource("powershell.min.js", Path.Combine(previewDir, "powershell.min.js"));
+        ExtractEmbeddedResource("dos.min.js", Path.Combine(previewDir, "dos.min.js"));
+        ExtractEmbeddedResource("apex.min.js", Path.Combine(previewDir, "apex.min.js"));
+        ExtractEmbeddedResource("github-dark.min.css", Path.Combine(previewDir, "hl-dark.css"));
+        ExtractEmbeddedResource("github.min.css", Path.Combine(previewDir, "hl-light.css"));
+    }
+
+    /// <summary>サフィックス一致で埋め込みリソースを探し、宛先へ展開する(同サイズが既にあればスキップ)。</summary>
+    private static void ExtractEmbeddedResource(string resourceSuffix, string destPath)
+    {
         var asm = Assembly.GetExecutingAssembly();
         var resourceName = Array.Find(asm.GetManifestResourceNames(),
-            n => n.EndsWith("mermaid.min.js", StringComparison.OrdinalIgnoreCase))
-            ?? throw new FileNotFoundException("埋め込みリソース mermaid.min.js が見つかりません。");
+            n => n.EndsWith(resourceSuffix, StringComparison.OrdinalIgnoreCase))
+            ?? throw new FileNotFoundException($"埋め込みリソース {resourceSuffix} が見つかりません。");
 
         using var resource = asm.GetManifestResourceStream(resourceName)!;
-        if (File.Exists(dest) && new FileInfo(dest).Length == resource.Length) return;
+        if (File.Exists(destPath) && new FileInfo(destPath).Length == resource.Length) return;
 
-        using var file = File.Create(dest);
+        using var file = File.Create(destPath);
         resource.CopyTo(file);
     }
 
@@ -534,9 +611,14 @@ public partial class PreviewWindow : Window
         }
     }
 
-    /// <summary>テキスト(ソース)を表示中か。プレーンテキスト、または Markdown/Html のソース表示時。</summary>
+    /// <summary>レンダリング ⇄ ソース表示(S キー)を切り替えられる種別か。</summary>
+    private static bool IsToggleable(PreviewKind kind) =>
+        kind == PreviewKind.Markdown || kind == PreviewKind.Html || kind == PreviewKind.Code;
+
+    /// <summary>TextView(プレーン)を表示中か。プレーンテキスト、または Code のソース表示時。
+    /// Markdown/Html のソースは highlight.js(WebView)で表示するため含めない。</summary>
     private bool ShowingText => _kind == PreviewKind.Text
-        || ((_kind == PreviewKind.Markdown || _kind == PreviewKind.Html) && _sourceMode);
+        || (_kind == PreviewKind.Code && _sourceMode);
 
     /// <summary>WebView へフォーカスを移さず DevTools 経由でスクロールさせる表示か(PDF / Html レンダリング)。</summary>
     private bool ShowingWebDoc => _kind == PreviewKind.Pdf
@@ -560,9 +642,8 @@ public partial class PreviewWindow : Window
                 e.Handled = true;
                 break;
 
-            case Key.S when _kind == PreviewKind.Markdown || _kind == PreviewKind.Html:
-                _sourceMode = !_sourceMode;  // レンダリング ⇄ ソース表示
-                ShowCurrent();
+            case Key.S when IsToggleable(_kind):   // ソース表示中(WPF にフォーカス)からの切替
+                ToggleSource();
                 e.Handled = true;
                 break;
 

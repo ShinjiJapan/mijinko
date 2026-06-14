@@ -467,7 +467,7 @@ public partial class MainWindow : Window
             if (Vm.Active.HasItems && !Vm.Active.Current.IsParent)
                 Run(Vm.OpenSelectedWithAssociation);   // Windows の関連付けで開く
         },
-        ["entry.openInOther"] = OpenCurrentInOtherPane,   // Ctrl+Enter: 反対ペインでフォルダーを開く
+        ["entry.openInOther"] = OpenCurrentInOtherPane,   // Ctrl+Enter: 反対ペインでフォルダー・書庫を開く
         ["nav.parent"] = () => { Run(Vm.Active.GoToParent); FocusActiveList(); },
         ["nav.sameAsOther"] = () =>
         {
@@ -483,6 +483,7 @@ public partial class MainWindow : Window
         ["file.deletePermanent"] = () => ConfirmOrRun(Vm.Settings.ConfirmPermanentDelete,
             $"{Describe(Vm.Active)} を完全に削除しますか?\nごみ箱には入らず、元に戻せません。", Vm.DeleteTargetsPermanently),
         ["file.rename"] = () => RenameInteractive(Vm.Active),
+        ["file.bulkRename"] = () => BulkRenameInteractive(Vm.Active),
         ["folder.create"] = CreateFolderInteractive,
         ["archive.zip"] = CompressInteractive,           // X: 選択項目を ZIP 圧縮
         ["path.copy"] = CopyPathToClipboard,             // カーソル項目のフルパスをコピー
@@ -551,12 +552,12 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>Ctrl+Enter: カーソル位置のフォルダーを反対ペインで開く(アクティブ側はそのまま)。</summary>
+    /// <summary>Ctrl+Enter: カーソル位置のフォルダー・書庫を反対ペインで開く(アクティブ側はそのまま)。</summary>
     private void OpenCurrentInOtherPane()
     {
         if (!Vm.Active.HasItems) return;
         var current = Vm.Active.Current;
-        if (!current.IsDirectory || current.IsParent) return;   // フォルダーのみ対象
+        if (current.IsParent || (!current.IsDirectory && !current.IsArchive)) return;   // フォルダー・書庫のみ対象
         Run(() => Vm.Inactive.NavigateTo(current.FullPath));
         FocusActiveList();
     }
@@ -1084,7 +1085,8 @@ public partial class MainWindow : Window
             BuildFavoriteEntries(), numbered: true,
             reload: BuildFavoriteEntries,
             onEdit: EditFavorite,
-            onDelete: DeleteFavorite) { Owner = this };
+            onDelete: DeleteFavorite,
+            onReorder: ReorderFavorite) { Owner = this };
 
         if (dialog.ShowDialog() == true && dialog.SelectedValue is { } path)
         {
@@ -1181,6 +1183,12 @@ public partial class MainWindow : Window
         if (confirm == MessageBoxResult.OK)
             Vm.RemoveFavorite(value);
     }
+
+    /// <summary>お気に入り(項目/グループ)を同じ階層内で上下に移動する(ショートカット番号の変更)。動いたら true。</summary>
+    private bool ReorderFavorite(string value, int delta) =>
+        value.StartsWith(FavoriteGroupPrefix, System.StringComparison.Ordinal)
+            ? Vm.MoveFavoriteGroup(value[FavoriteGroupPrefix.Length..], delta)
+            : Vm.MoveFavorite(value, delta);
 
     private void PickAndNavigate(string title, string prompt, IReadOnlyList<SelectionEntry> entries,
         bool numbered = false, bool letterSelect = false)
@@ -1333,6 +1341,26 @@ public partial class MainWindow : Window
         var dialog = new InputDialog("名前の変更", "新しい名前:", active.Current.Name) { Owner = this };
         if (dialog.ShowDialog() == true && !string.IsNullOrWhiteSpace(dialog.InputText))
             Run(() => Vm.RenameCurrent(dialog.InputText));
+    }
+
+    /// <summary>Shift+R: マーク(無ければカーソル)の複数項目を連番/置換/正規表現で一括リネームする。</summary>
+    private void BulkRenameInteractive(PaneViewModel active)
+    {
+        var targets = active.Targets
+            .Where(e => !e.IsParent)
+            .Select(e => (e.FullPath, e.Name))
+            .ToArray();
+        if (targets.Length == 0) return;
+
+        var targetPaths = new HashSet<string>(targets.Select(t => t.FullPath), StringComparer.OrdinalIgnoreCase);
+        var existingNames = active.Entries
+            .Where(e => !e.Entry.IsParent && !targetPaths.Contains(e.Entry.FullPath))
+            .Select(e => e.Entry.Name)
+            .ToArray();
+
+        var dialog = new BulkRenameDialog(targets, existingNames) { Owner = this };
+        if (dialog.ShowDialog() == true && dialog.Renames.Count > 0)
+            Run(() => Vm.BulkRename(dialog.Renames));
     }
 
     /// <summary>K: アクティブ側の現在フォルダー直下に新規フォルダーを作成する。</summary>

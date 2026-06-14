@@ -289,6 +289,130 @@ public sealed class FavoritesStoreTests : IDisposable
     }
 
     [Fact]
+    public void MoveItem_Down_SwapsWithNextSibling()
+    {
+        var store = new FavoritesStore(_file);
+        store.Add(@"C:\a");
+        store.Add(@"C:\b");
+        store.Add(@"C:\c");
+
+        Assert.True(store.MoveItem(@"C:\a", 1));
+
+        Assert.Equal(new[] { @"C:\b", @"C:\a", @"C:\c" }, store.GetTree().Select(f => f.Path));
+    }
+
+    [Fact]
+    public void MoveItem_Up_SwapsWithPreviousSibling()
+    {
+        var store = new FavoritesStore(_file);
+        store.Add(@"C:\a");
+        store.Add(@"C:\b");
+
+        Assert.True(store.MoveItem(@"C:\b", -1));
+
+        Assert.Equal(new[] { @"C:\b", @"C:\a" }, store.GetTree().Select(f => f.Path));
+    }
+
+    [Fact]
+    public void MoveItem_AtTopBoundary_DoesNothing_ReturnsFalse()
+    {
+        var store = new FavoritesStore(_file);
+        store.Add(@"C:\a");
+        store.Add(@"C:\b");
+
+        Assert.False(store.MoveItem(@"C:\a", -1));
+
+        Assert.Equal(new[] { @"C:\a", @"C:\b" }, store.GetTree().Select(f => f.Path));
+    }
+
+    [Fact]
+    public void MoveItem_AtBottomBoundary_DoesNothing_ReturnsFalse()
+    {
+        var store = new FavoritesStore(_file);
+        store.Add(@"C:\a");
+        store.Add(@"C:\b");
+
+        Assert.False(store.MoveItem(@"C:\b", 1));
+
+        Assert.Equal(new[] { @"C:\a", @"C:\b" }, store.GetTree().Select(f => f.Path));
+    }
+
+    [Fact]
+    public void MoveItem_StaysWithinItsGroup()
+    {
+        var store = new FavoritesStore(_file);
+        store.Add(@"C:\x");
+        store.Add(@"C:\a", "", "仕事");
+        store.Add(@"C:\b", "", "仕事");
+
+        Assert.True(store.MoveItem(@"C:\b", -1));
+
+        var tree = store.GetTree();
+        Assert.Equal(@"C:\x", tree[0].Path);
+        var group = tree[1];
+        Assert.True(group.IsGroup);
+        Assert.Equal(new[] { @"C:\b", @"C:\a" }, group.Children!.Select(c => c.Path));
+    }
+
+    [Fact]
+    public void MoveItem_UnknownPath_ReturnsFalse()
+    {
+        var store = new FavoritesStore(_file);
+        store.Add(@"C:\a");
+
+        Assert.False(store.MoveItem(@"C:\missing", 1));
+    }
+
+    [Fact]
+    public void MoveItem_Persists_AcrossInstances()
+    {
+        new FavoritesStore(_file).Add(@"C:\a");
+        var store = new FavoritesStore(_file);
+        store.Add(@"C:\b");
+        store.MoveItem(@"C:\a", 1);
+
+        var reopened = new FavoritesStore(_file);
+        Assert.Equal(new[] { @"C:\b", @"C:\a" }, reopened.GetTree().Select(f => f.Path));
+    }
+
+    [Fact]
+    public void MoveGroup_Down_SwapsWithNextSibling()
+    {
+        var store = new FavoritesStore(_file);
+        store.Add(@"C:\a", "", "仕事");
+        store.Add(@"C:\b", "", "趣味");
+
+        Assert.True(store.MoveGroup("仕事", 1));
+
+        var tree = store.GetTree();
+        Assert.Equal("趣味", tree[0].Label);
+        Assert.Equal("仕事", tree[1].Label);
+    }
+
+    [Fact]
+    public void MoveGroup_NestedGroup_MovesWithinParent()
+    {
+        var store = new FavoritesStore(_file);
+        store.Add(@"C:\a", "", "親/A");
+        store.Add(@"C:\b", "", "親/B");
+
+        Assert.True(store.MoveGroup("親/A", 1));
+
+        var parent = Assert.Single(store.GetTree());
+        Assert.Equal(new[] { "B", "A" }, parent.Children!.Select(c => c.Label));
+    }
+
+    [Fact]
+    public void MoveGroup_AtBoundary_ReturnsFalse()
+    {
+        var store = new FavoritesStore(_file);
+        store.Add(@"C:\a", "", "仕事");
+        store.Add(@"C:\b", "", "趣味");
+
+        Assert.False(store.MoveGroup("仕事", -1));
+    }
+
+    [Fact]
     public void NestedTree_Persists_AcrossInstances()
     {
         var store = new FavoritesStore(_file);

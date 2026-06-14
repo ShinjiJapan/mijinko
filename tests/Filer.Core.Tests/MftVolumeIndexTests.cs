@@ -1,3 +1,4 @@
+using System.IO;
 using Filer.Core;
 
 namespace Filer.Core.Tests;
@@ -266,5 +267,97 @@ public sealed class MftVolumeIndexTests
             (path, _, _, _) => hits.Add(path), cts.Token);
 
         Assert.Empty(hits);
+    }
+
+    // ---- ディスク永続化(WriteTo / TryReadFrom)----
+
+    private static MftVolumeIndex RoundTrip(MftVolumeIndex index)
+    {
+        using var ms = new MemoryStream();
+        index.WriteTo(ms);
+        ms.Position = 0;
+        var loaded = MftVolumeIndex.TryReadFrom(ms, @"C:\", Root);
+        Assert.NotNull(loaded);
+        return loaded!;
+    }
+
+    [Fact]
+    public void RoundTrip_PreservesScanResults()
+    {
+        var loaded = RoundTrip(BuildSample());
+
+        Assert.Equal(@"C:\docs\sub\deep.md", Assert.Single(Scan(loaded, "deep", Root)).Path);
+        Assert.Equal(3, Scan(loaded, ".md", Root).Count);
+        Assert.Equal(@"C:\日本語フォルダ\メモ.txt", Assert.Single(Scan(loaded, "メモ", Root)).Path);
+    }
+
+    [Fact]
+    public void RoundTrip_PreservesJournalPosition()
+    {
+        var index = BuildSample();
+        index.JournalId = 0x1122334455667788UL;
+        index.NextUsn = 9_876_543_210L;
+
+        var loaded = RoundTrip(index);
+
+        Assert.Equal(0x1122334455667788UL, loaded.JournalId);
+        Assert.Equal(9_876_543_210L, loaded.NextUsn);
+    }
+
+    [Fact]
+    public void RoundTrip_PreservesHardLinks()
+    {
+        var index = BuildSample();
+        index.AddName(Frn(20), Frn(10), "linked.md", isDirectory: false);
+
+        var hits = Scan(RoundTrip(index), ".md", Root);
+        Assert.Contains(hits, h => h.Path == @"C:\readme.md");
+        Assert.Contains(hits, h => h.Path == @"C:\docs\linked.md");
+    }
+
+    [Fact]
+    public void RoundTrip_ManyEntries_MultiChunkNameHeap()
+    {
+        var index = new MftVolumeIndex(@"C:\", Root);
+        for (ulong i = 0; i < 50_000; i++)
+            index.Set(Frn(100 + i), Root, $"file-{i:D8}-with-a-reasonably-long-name.txt", isDirectory: false);
+
+        var loaded = RoundTrip(index);
+
+        Assert.Equal(@"C:\file-00049999-with-a-reasonably-long-name.txt",
+            Assert.Single(Scan(loaded, "file-00049999", Root)).Path);
+        Assert.Equal(@"C:\file-00000000-with-a-reasonably-long-name.txt",
+            Assert.Single(Scan(loaded, "file-00000000", Root)).Path);
+    }
+
+    [Fact]
+    public void RoundTrip_ThenDeltaUpdate_Works()
+    {
+        var loaded = RoundTrip(BuildSample());
+        loaded.Set(Frn(40), Root, "added.md", isDirectory: false);   // 読み込み後の差分適用
+        loaded.Remove(Frn(20));
+
+        var hits = Scan(loaded, ".md", Root);
+        Assert.Contains(hits, h => h.Path == @"C:\added.md");
+        Assert.DoesNotContain(hits, h => h.Path == @"C:\readme.md");
+    }
+
+    [Fact]
+    public void TryReadFrom_RootMismatch_ReturnsNull()
+    {
+        using var ms = new MemoryStream();
+        BuildSample().WriteTo(ms);
+
+        ms.Position = 0;
+        Assert.Null(MftVolumeIndex.TryReadFrom(ms, @"D:\", Root));   // ルート違い
+        ms.Position = 0;
+        Assert.Null(MftVolumeIndex.TryReadFrom(ms, @"C:\", Frn(99, 99)));   // ルート FRN 違い
+    }
+
+    [Fact]
+    public void TryReadFrom_GarbageOrBadMagic_ReturnsNull()
+    {
+        Assert.Null(MftVolumeIndex.TryReadFrom(new MemoryStream(new byte[] { 1, 2, 3, 4 }), @"C:\", Root));
+        Assert.Null(MftVolumeIndex.TryReadFrom(new MemoryStream(), @"C:\", Root));
     }
 }

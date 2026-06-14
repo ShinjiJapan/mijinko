@@ -123,6 +123,46 @@ public sealed class FavoritesStore
         Save(roots);
     }
 
+    /// <summary>
+    /// 項目を所属する階層の中で delta だけ上下に移動する(負=上へ・正=下へ)。
+    /// 先頭/末尾を越える分はクランプし、位置が変わったときだけ true を返す。
+    /// 番号(1〜9)は階層内の並び順で決まるため、これがショートカット番号の変更になる。
+    /// </summary>
+    public bool MoveItem(string path, int delta)
+    {
+        var roots = Load();
+        if (FindItem(roots, path) is not { } found)
+            return false;
+        if (!MoveWithin(found.List, found.Index, delta))
+            return false;
+        Save(roots);
+        return true;
+    }
+
+    /// <summary>グループを所属する階層の中で delta だけ上下に移動する。位置が変わったら true。</summary>
+    public bool MoveGroup(string groupPath, int delta)
+    {
+        var roots = Load();
+        if (FindGroup(roots, groupPath) is not { } found)
+            return false;
+        if (!MoveWithin(found.List, found.List.IndexOf(found.Group), delta))
+            return false;
+        Save(roots);
+        return true;
+    }
+
+    /// <summary>list 内の index のノードを delta だけずらす(範囲外はクランプ)。動いたら true。</summary>
+    private static bool MoveWithin(List<Node> list, int index, int delta)
+    {
+        var target = Math.Clamp(index + delta, 0, list.Count - 1);
+        if (target == index)
+            return false;
+        var node = list[index];
+        list.RemoveAt(index);
+        list.Insert(target, node);
+        return true;
+    }
+
     // ---- 内部表現(可変ツリー) ----
 
     private sealed class Node

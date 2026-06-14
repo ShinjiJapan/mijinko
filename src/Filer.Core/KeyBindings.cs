@@ -22,6 +22,7 @@ public static class KeyBindingActions
         new("file.delete", "ごみ箱へ送る", "ファイル操作", new[] { "D", "Delete" }, "ごみ箱"),
         new("file.deletePermanent", "完全削除(ごみ箱を経由しない)", "ファイル操作", new[] { "Shift+D" }, "完全削除"),
         new("file.rename", "名前の変更", "ファイル操作", new[] { "R" }, "改名"),
+        new("file.bulkRename", "一括リネーム(連番/置換/正規表現)", "ファイル操作", new[] { "Shift+R" }, "一括改名"),
         new("folder.create", "新規フォルダー作成", "ファイル操作", new[] { "K" }, "新規フォルダー"),
         new("archive.zip", "ZIP 圧縮", "ファイル操作", new[] { "X" }, "圧縮"),
         new("sort.select", "ソート(方法と順番の選択)", "表示", new[] { "S" }, "ソート"),

@@ -144,6 +144,11 @@ document.addEventListener('keydown', function (e) {
     if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage('cycle-view');
     return;
   }
+  if (e.key === 's' || e.key === 'S') {   // S: レンダリング ⇄ ソース表示をホストへ通知
+    e.preventDefault();
+    if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage('toggle-source');
+    return;
+  }
   if (e.key !== 'Escape' && e.key !== 'Enter') return;
   if (document.fullscreenElement) return;   // 全画面中の Esc は解除を優先
   if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage('close');

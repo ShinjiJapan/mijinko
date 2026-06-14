@@ -19,6 +19,15 @@
 - 設定:`AppSettings.EnableElevatedFastSearch`(`src/Filer.Core/AppSettingsStore.cs`、JSON `enableElevatedFastSearch`、欠落時 true)。設定ダイアログ `SettingsDialog.xaml` の「検索」タブ `EnableFastSearchCheck` で ON/OFF。OK で即時反映(再起動不要)。管理者起動時はこの設定によらず常に高速検索。
 - app.manifest は**変更なし**(asInvoker 維持=本体は標準権限)。
 
+## ディスク永続化(再起動後も全列挙を回避)
+ヘルパー常駐索引はプロセスメモリのみのため Filer 終了で消え、再起動後の初回検索が全列挙になっていた。これを解消するため `MftVolumeIndex` をディスクへ保存・再利用する。**UAC は依然毎回出る**(ヘルパーは親終了で消えるため初回検索で `runas` が必要)。解消したのは「再起動後の全列挙」だけ。
+- 形式:`MftVolumeIndex.WriteTo(Stream)` / `static TryReadFrom(Stream, expectedRoot, expectedRootFrn)`。Magic `"MJNKMFT1"` + FormatVersion(=1)。並列配列を `MemoryMarshal.AsBytes` で一括書き出し(**ローカル機専用・ネイティブエンディアン依存**、win-x64 のみなので LE 固定)。名前ヒープはチャンク境界を保持(オフセットが chunkIndex<<20|inner を符号化)。`_extraNames`(ハードリンク追加名)・JournalId・NextUsn も保存。破損/形式不一致/ルート(rootPath・rootFrn)不一致は **null**(全列挙へ)。
+- 保存場所:`%LOCALAPPDATA%\mijinko-filer\mft-cache\<ドライブ>.idx`(例 `C.idx`)。ヘルパーは昇格するが同一ユーザーなので LocalApplicationData は本人プロファイル。
+- 保存タイミング:`MftSearchService.TrySearch`→`TryGetFreshIndex` の**全構築成功時のみ**(`hasJournal` の時だけ。一時ファイル経由で原子的差し替え)。差分更新時は再保存しない(毎検索で 200MB 書き出しを避ける)。よって on-disk の NextUsn は全構築時点で固定 → 再起動後は「ディスク読込 + その時点からの USN 差分」で立ち上がる。差分が大きすぎてジャーナルがパージ済みなら delta 失敗→全再構築→再保存(既存ロジックで吸収)。
+- 読込タイミング:`TryGetFreshIndex` で `volume.Index is null`(セッション初回)の時 `TryLoadFromDisk`→成功で `volume.Index` 設定・`JournalUsable=true`。直後の共通経路で `cached.JournalId==journal.UsnJournalID && TryApplyJournalDelta` が通れば差分更新、ダメなら全再構築。
+- 保存失敗(IO/権限/巨大ボリューム NotSupported)は無視=次回も全列挙するだけ(キャッシュは性能最適化で正常動作には不要。フォールバック禁止ルールの例外として妥当)。
+- テスト:`MftVolumeIndexTests` に WriteTo/TryReadFrom 往復(scan 結果・JournalId/NextUsn・ハードリンク・5万件マルチチャンク・読込後の差分適用・ルート不一致 null・破損 null、計8件追加)。実ボリューム保存/読込は手動確認。
+
 ## テスト
 - `tests/Filer.Core.Tests/SearchIpcProtocolTests.cs`(フレーム往復・EOF=null・DTO/ドメイン変換、6件)
 - `tests/Filer.Core.Tests/ElevatedSearchHostTests.cs`(Request→Batch→Done・Error・**Cancel 中断**・切断終了、4件)

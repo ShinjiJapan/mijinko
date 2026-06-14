@@ -18,7 +18,8 @@
                         <Border x:Name="Bd" Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="3"
                                 Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              RecognizesAccessKey="True"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
@@ -58,7 +59,7 @@
                         <Border x:Name="Bd" Background="{DynamicResource Panel.Background}" BorderBrush="{DynamicResource Border.Default}"
                                 BorderThickness="1,1,1,0" CornerRadius="3,3,0,0"
                                 Padding="16,7" Margin="0,0,2,0">
-                            <ContentPresenter ContentSource="Header"/>
+                            <ContentPresenter ContentSource="Header" RecognizesAccessKey="True"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
@@ -120,9 +121,9 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <TabControl Grid.Row="0">
+        <TabControl x:Name="Tabs" Grid.Row="0">
             <!-- ============ キー割り当て ============ -->
-            <TabItem Header="キー割り当て">
+            <TabItem Header="キー割り当て(_K)">
                 <Grid Margin="10" Background="{DynamicResource App.Background}">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -205,7 +206,7 @@
             </TabItem>
 
             <!-- ============ 外部ツール ============ -->
-            <TabItem Header="外部ツール">
+            <TabItem Header="外部ツール(_T)">
                 <Grid Margin="10" Background="{DynamicResource App.Background}">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -271,7 +272,7 @@
             </TabItem>
 
             <!-- ============ 外観 ============ -->
-            <TabItem Header="外観">
+            <TabItem Header="外観(_A)">
                 <StackPanel Margin="16" Background="{DynamicResource App.Background}">
                     <TextBlock Text="テーマ" FontSize="13" FontWeight="Bold"
                                Foreground="{DynamicResource Fg.Secondary}" Margin="0,4,0,10"/>
@@ -285,9 +286,14 @@
                     <RadioButton x:Name="ThemeSystem" GroupName="Theme" Content="Windows に合わせる" Checked="Theme_Checked"/>
                     <TextBlock Style="{StaticResource HintText}" Margin="0,12,0,0" FontSize="12"
                                Text="テーマはラジオを選んだ瞬間に全ウィンドウ(Markdown プレビュー含む)へプレビュー反映されます。OK で確定、キャンセルで元に戻ります。「Windows に合わせる」は起動時と設定変更時に OS のライト/ダーク設定を読み取ります。"/>
+                </StackPanel>
+            </TabItem>
 
+            <!-- ============ パフォーマンス ============ -->
+            <TabItem Header="パフォーマンス(_P)">
+                <StackPanel Margin="16" Background="{DynamicResource App.Background}">
                     <TextBlock Text="パフォーマンス" FontSize="13" FontWeight="Bold"
-                               Foreground="{DynamicResource Fg.Secondary}" Margin="0,20,0,10"/>
+                               Foreground="{DynamicResource Fg.Secondary}" Margin="0,4,0,10"/>
                     <CheckBox x:Name="LightweightUiaCheck" Foreground="{DynamicResource Fg.Primary}"
                               Content="ファイル一覧の行を UI Automation に公開しない(大量フォルダーの移動を高速化)"/>
                     <TextBlock Style="{StaticResource HintText}" Margin="24,6,0,0" FontSize="12" TextWrapping="Wrap"
@@ -296,7 +302,7 @@
             </TabItem>
 
             <!-- ============ 検索 ============ -->
-            <TabItem Header="検索">
+            <TabItem Header="検索(_S)">
                 <StackPanel Margin="16" Background="{DynamicResource App.Background}">
                     <TextBlock Text="高速検索(管理者権限)" FontSize="13" FontWeight="Bold"
                                Foreground="{DynamicResource Fg.Secondary}" Margin="0,4,0,10"/>
@@ -308,7 +314,7 @@
             </TabItem>
 
             <!-- ============ 確認ダイアログ ============ -->
-            <TabItem Header="確認">
+            <TabItem Header="確認(_N)">
                 <StackPanel Margin="16" Background="{DynamicResource App.Background}">
                     <TextBlock Text="操作前の確認ダイアログ" FontSize="13" FontWeight="Bold"
                                Foreground="{DynamicResource Fg.Secondary}" Margin="0,4,0,10"/>
@@ -332,8 +338,8 @@
             <TextBlock DockPanel.Dock="Left" Style="{StaticResource HintText}" VerticalAlignment="Center"
                        Text="設定は %APPDATA%\Filer\settings.json に保存され、OK で即時反映されます。"/>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                <Button Content="OK" Width="92" Click="Ok_Click" Margin="0,0,8,0"/>
-                <Button Content="キャンセル" Width="92" IsCancel="True"/>
+                <Button Content="OK(_O)" Width="92" IsDefault="True" Click="Ok_Click" Margin="0,0,8,0"/>
+                <Button Content="キャンセル(_C)" Width="92" IsCancel="True"/>
             </StackPanel>
         </DockPanel>
     </Grid>

@@ -11,6 +11,8 @@ public enum PreviewKind
     Text,
     /// <summary>Markdown(レンダリング表示)。</summary>
     Markdown,
+    /// <summary>ソースコード/データ(シンタックスハイライト表示。S キーでソース表示と切替)。</summary>
+    Code,
     /// <summary>PDF(WebView2 の組み込みビューアで表示)。</summary>
     Pdf,
     /// <summary>HTML/XHTML/MHTML/SVG(WebView2 でレンダリング表示。S キーでソース表示と切替)。</summary>
@@ -32,14 +34,21 @@ public static class FilePreview
         ".md", ".markdown",
     };
 
+    // 文法ハイライトが効かない/不要なプレーンテキスト(等幅プレーン表示)。
     private static readonly HashSet<string> TextExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".txt", ".log", ".csv", ".tsv",
+        ".txt", ".log", ".csv", ".tsv", ".sln", ".gitignore", ".editorconfig",
+    };
+
+    // シンタックスハイライト対象のソースコード/データ(WebView2 + highlight.js で表示)。
+    private static readonly HashSet<string> CodeExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
         ".json", ".xml", ".yaml", ".yml", ".ini", ".cfg", ".conf", ".toml",
         ".css", ".js", ".ts", ".jsx", ".tsx",
-        ".cs", ".csproj", ".sln", ".xaml", ".java", ".kt", ".go", ".rs",
+        ".cs", ".csproj", ".xaml", ".java", ".kt", ".go", ".rs",
         ".c", ".h", ".cpp", ".hpp", ".py", ".rb", ".php", ".sql",
-        ".sh", ".ps1", ".bat", ".cmd", ".gitignore", ".editorconfig",
+        ".sh", ".ps1", ".bat", ".cmd",
+        ".cls", ".apex",
     };
 
     private static readonly HashSet<string> HtmlExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -55,8 +64,16 @@ public static class FilePreview
         if (ImageExtensions.Contains(ext)) return PreviewKind.Image;
         if (MarkdownExtensions.Contains(ext)) return PreviewKind.Markdown;
         if (HtmlExtensions.Contains(ext)) return PreviewKind.Html;
+        if (CodeExtensions.Contains(ext)) return PreviewKind.Code;
         if (TextExtensions.Contains(ext)) return PreviewKind.Text;
         if (string.Equals(ext, ".pdf", StringComparison.OrdinalIgnoreCase)) return PreviewKind.Pdf;
         return PreviewKind.None;
     }
+
+    /// <summary>
+    /// プレビュー表示開始時にソース表示で開くか。Markdown / HTML はソースを初期表示とし、
+    /// S キーでレンダリング(プレビュー)へ切り替える。Code はハイライト表示を初期とするため false。
+    /// </summary>
+    public static bool InitialSourceMode(PreviewKind kind) =>
+        kind == PreviewKind.Markdown || kind == PreviewKind.Html;
 }

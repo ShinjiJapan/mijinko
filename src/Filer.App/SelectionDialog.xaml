@@ -78,18 +78,36 @@
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="{Binding Display}" Padding="2"
-                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                        <DockPanel Grid.Column="0">
+                            <!-- numbered 時の番号(例 "3. ") -->
+                            <TextBlock DockPanel.Dock="Left" Text="{Binding Number}" Padding="2,0,0,0"
+                                       VerticalAlignment="Center"/>
+                            <!-- 子を持つ(グループ)行はラベル先頭にフォルダーアイコン(📁絵文字・ラベルと同じ文字色を継承) -->
+                            <TextBlock DockPanel.Dock="Left" Text="&#x1F4C1;" FontFamily="Segoe UI Emoji"
+                                       FontSize="13" Margin="2,0,4,0" VerticalAlignment="Center"
+                                       Visibility="{Binding ChevronVisibility}"/>
+                            <TextBlock Text="{Binding Display}" Padding="2"
+                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                        </DockPanel>
                         <!-- グループ行のサブメニューマーカー -->
                         <TextBlock Grid.Column="1" Text="›" Margin="6,0" FontWeight="Bold"
                                    VerticalAlignment="Center" Foreground="{DynamicResource Fg.Secondary}"
                                    Visibility="{Binding ChevronVisibility}"/>
-                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center"
-                                    Visibility="{Binding EditButtonsVisibility, RelativeSource={RelativeSource AncestorType=Window}}">
-                            <Button Content="&#xE70F;" Style="{StaticResource IconButtonStyle}"
-                                    ToolTip="編集" Click="Edit_Click"/>
-                            <Button Content="&#xE74D;" Style="{StaticResource IconButtonStyle}"
-                                    ToolTip="削除" Click="Delete_Click"/>
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal"
+                                        Visibility="{Binding ReorderButtonsVisibility, RelativeSource={RelativeSource AncestorType=Window}}">
+                                <Button Content="&#xE70E;" Style="{StaticResource IconButtonStyle}"
+                                        ToolTip="上へ (Ctrl+↑)" Click="MoveUp_Click"/>
+                                <Button Content="&#xE70D;" Style="{StaticResource IconButtonStyle}"
+                                        ToolTip="下へ (Ctrl+↓)" Click="MoveDown_Click"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal"
+                                        Visibility="{Binding EditButtonsVisibility, RelativeSource={RelativeSource AncestorType=Window}}">
+                                <Button Content="&#xE70F;" Style="{StaticResource IconButtonStyle}"
+                                        ToolTip="編集" Click="Edit_Click"/>
+                                <Button Content="&#xE74D;" Style="{StaticResource IconButtonStyle}"
+                                        ToolTip="削除" Click="Delete_Click"/>
+                            </StackPanel>
                         </StackPanel>
                     </Grid>
                 </DataTemplate>

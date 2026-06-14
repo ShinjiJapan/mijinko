@@ -95,6 +95,14 @@ public static class MftSearchService
         var hasJournal = UsnInterop.DeviceIoControl(handle, UsnInterop.FsctlQueryUsnJournal,
             IntPtr.Zero, 0, out var journal, Marshal.SizeOf<UsnInterop.UsnJournalData>(), out _, IntPtr.Zero);
 
+        // セッション初回はディスクの永続索引を読み込み、以降の差分更新で最新化する
+        // (Filer 再起動後も全列挙を避ける)。読込後の差分適用は下の共通経路で行う。
+        if (volume.Index is null && TryLoadFromDisk(root, rootFrn) is { } disk)
+        {
+            volume.Index = disk;
+            volume.JournalUsable = true;
+        }
+
         if (volume.Index is { } cached && volume.JournalUsable && hasJournal &&
             cached.JournalId == journal.UsnJournalID &&
             TryApplyJournalDelta(handle, cached, root, token))
@@ -139,7 +147,64 @@ public static class MftSearchService
         volume.JournalUsable = hasJournal;
         index = fresh;
         note = (hasJournal ? "MFT索引(全読込)" : "MFT索引(ジャーナル無効: 毎回全読込)") + buildSuffix;
+
+        // 次回の Filer 起動で再利用するためディスクへ保存する。ジャーナルがなければ
+        // 再起動後に差分適用できず全列挙になるため保存しない。
+        if (hasJournal)
+            TrySaveToDisk(fresh, root);
         return true;
+    }
+
+    /// <summary>ボリューム索引のディスクキャッシュのパス(%LOCALAPPDATA%\mijinko-filer\mft-cache\C.idx)。</summary>
+    private static string? CacheFilePath(string root)
+    {
+        try
+        {
+            var dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "mijinko-filer", "mft-cache");
+            var drive = root.TrimEnd('\\').TrimEnd(':');   // "C:\" → "C"
+            return string.IsNullOrEmpty(drive) ? null : Path.Combine(dir, drive + ".idx");
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>永続索引を読み込む。無い・破損・ボリューム入れ替えは null(全列挙へ)。</summary>
+    private static MftVolumeIndex? TryLoadFromDisk(string root, ulong rootFrn)
+    {
+        var path = CacheFilePath(root);
+        if (path is null || !File.Exists(path)) return null;
+        try
+        {
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1 << 20);
+            return MftVolumeIndex.TryReadFrom(fs, root, rootFrn);
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>索引をディスクへ保存する(一時ファイル経由で原子的に差し替え)。キャッシュなので失敗は無視。</summary>
+    private static void TrySaveToDisk(MftVolumeIndex index, string root)
+    {
+        var path = CacheFilePath(root);
+        if (path is null) return;
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            var tmp = path + ".tmp";
+            using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 20))
+                index.WriteTo(fs);
+            File.Move(tmp, path, overwrite: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
+        {
+            // 永続キャッシュは性能最適化であり正常動作には不要。書込失敗時は次回も全列挙するだけ。
+        }
     }
 
     private enum LayoutResult { Done, Unsupported, Failed }

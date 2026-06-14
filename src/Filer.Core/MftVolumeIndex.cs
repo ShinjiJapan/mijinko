@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace Filer.Core;
@@ -260,5 +261,141 @@ public sealed class MftVolumeIndex
         Array.Resize(ref _nameLength, size);
         Array.Resize(ref _sequence, size);
         Array.Resize(ref _flags, size);
+    }
+
+    // ---- ディスク永続化(ローカルマシン専用のバイナリ形式。ネイティブエンディアン依存)----
+    // ヘルパープロセス常駐中の索引をディスクへ保存し、Filer 再起動後の初回検索で全列挙を避ける。
+    // 読み込み後は MftSearchService が USN 差分を適用して最新化する。
+
+    private static ReadOnlySpan<byte> Magic => "MJNKMFT1"u8;
+    private const int FormatVersion = 1;
+
+    /// <summary>索引をストリームへ書き出す。レコード番号が int 上限を超える巨大ボリュームは保存しない。</summary>
+    public void WriteTo(Stream stream)
+    {
+        if (_maxRecno >= int.MaxValue)
+            throw new NotSupportedException("レコード数が多すぎて永続化できません");
+
+        var w = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true);
+        w.Write(Magic);
+        w.Write(FormatVersion);
+        w.Write(_rootPath);
+        w.Write(_rootFrn);
+        w.Write(JournalId);
+        w.Write(NextUsn);
+        w.Write(_maxRecno);
+
+        var count = (int)(_maxRecno + 1);
+        WriteArray(stream, _parent.AsSpan(0, count));
+        WriteArray(stream, _nameOffset.AsSpan(0, count));
+        WriteArray(stream, _nameLength.AsSpan(0, count));
+        WriteArray(stream, _sequence.AsSpan(0, count));
+        WriteArray(stream, _flags.AsSpan(0, count));
+
+        // 名前ヒープ。オフセットは chunkIndex<<20|inner を符号化しているのでチャンク境界を保つ。
+        w.Write(_nameChunks.Count);
+        w.Write(_nameTail);
+        for (var i = 0; i < _nameChunks.Count; i++)
+        {
+            var used = i == _nameChunks.Count - 1 ? _nameTail : ChunkSize;
+            stream.Write(_nameChunks[i], 0, used);
+        }
+
+        w.Write(_extraNames.Count);
+        foreach (var (recno, list) in _extraNames)
+        {
+            w.Write(recno);
+            w.Write(list.Count);
+            foreach (var (parentFrn, nameOffset, nameLength) in list)
+            {
+                w.Write(parentFrn);
+                w.Write(nameOffset);
+                w.Write(nameLength);
+            }
+        }
+        w.Flush();
+    }
+
+    /// <summary>
+    /// ストリームから索引を読み込む。形式不一致・破損・ルート不一致(ボリューム入れ替え等)は null を返す。
+    /// </summary>
+    public static MftVolumeIndex? TryReadFrom(Stream stream, string expectedRoot, ulong expectedRootFrn)
+    {
+        try
+        {
+            var r = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
+            Span<byte> magic = stackalloc byte[Magic.Length];
+            if (r.Read(magic) != magic.Length || !magic.SequenceEqual(Magic)) return null;
+            if (r.ReadInt32() != FormatVersion) return null;
+
+            var rootPath = r.ReadString();
+            var rootFrn = r.ReadUInt64();
+            if (!string.Equals(rootPath, expectedRoot, StringComparison.OrdinalIgnoreCase) ||
+                rootFrn != expectedRootFrn)
+                return null;
+
+            var index = new MftVolumeIndex(rootPath, rootFrn)
+            {
+                JournalId = r.ReadUInt64(),
+                NextUsn = r.ReadInt64(),
+            };
+            index._maxRecno = r.ReadInt64();
+            if (index._maxRecno < -1 || index._maxRecno >= int.MaxValue) return null;
+
+            var count = (int)(index._maxRecno + 1);
+            index._parent = ReadArray<long>(stream, count);
+            index._nameOffset = ReadArray<int>(stream, count);
+            index._nameLength = ReadArray<ushort>(stream, count);
+            index._sequence = ReadArray<ushort>(stream, count);
+            index._flags = ReadArray<byte>(stream, count);
+
+            var chunkCount = r.ReadInt32();
+            index._nameTail = r.ReadInt32();
+            if (chunkCount < 1 || index._nameTail < 0 || index._nameTail > ChunkSize) return null;
+            index._nameChunks.Clear();
+            for (var i = 0; i < chunkCount; i++)
+            {
+                var chunk = new byte[ChunkSize];
+                var used = i == chunkCount - 1 ? index._nameTail : ChunkSize;
+                ReadFully(stream, chunk.AsSpan(0, used));
+                index._nameChunks.Add(chunk);
+            }
+
+            var extraCount = r.ReadInt32();
+            for (var i = 0; i < extraCount; i++)
+            {
+                var recno = r.ReadInt64();
+                var listCount = r.ReadInt32();
+                var list = new List<(long, int, ushort)>(listCount);
+                for (var j = 0; j < listCount; j++)
+                    list.Add((r.ReadInt64(), r.ReadInt32(), r.ReadUInt16()));
+                index._extraNames[recno] = list;
+            }
+            return index;
+        }
+        catch (Exception ex) when (ex is EndOfStreamException or IOException or OutOfMemoryException)
+        {
+            return null;
+        }
+    }
+
+    private static void WriteArray<T>(Stream stream, ReadOnlySpan<T> data) where T : struct =>
+        stream.Write(MemoryMarshal.AsBytes(data));
+
+    private static T[] ReadArray<T>(Stream stream, int count) where T : struct
+    {
+        var array = new T[Math.Max(count, 1024)];   // EnsureCapacity の倍増が破綻しない最小長を確保
+        if (count > 0) ReadFully(stream, MemoryMarshal.AsBytes(array.AsSpan(0, count)));
+        return array;
+    }
+
+    private static void ReadFully(Stream stream, Span<byte> buffer)
+    {
+        while (!buffer.IsEmpty)
+        {
+            var read = stream.Read(buffer);
+            if (read == 0) throw new EndOfStreamException();
+            buffer = buffer[read..];
+        }
     }
 }
