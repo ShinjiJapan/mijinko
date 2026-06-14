@@ -94,6 +94,43 @@ public sealed partial class EntryViewModel : ObservableObject
     /// <summary>Windows のシェルアイコン(エクスプローラーと同じ。種別ごとに表示)。</summary>
     public ImageSource? IconImage => ShellIconProvider.GetIcon(Entry.FullPath, Entry.IsDirectory);
 
+    /// <summary>
+    /// グリッド(サムネイル)表示で取得する画像の一辺(px)。拡大タイル(160px)でも鮮明になるよう
+    /// 大きめに取得し、通常タイル(80px)では縮小表示する(両サイズで同じキャッシュを共用)。
+    /// </summary>
+    public const int ThumbnailSize = 160;
+
+    private ImageSource? _thumbnail;
+    private bool _thumbnailRequested;
+
+    /// <summary>
+    /// グリッド表示用のサムネイル。生成済みなら即返し、未生成ならアイコンを仮表示して
+    /// 非同期に取得する(完了時に差し替え通知)。書庫内・実在しないパスはアイコンのまま。
+    /// </summary>
+    public ImageSource? Thumbnail
+    {
+        get
+        {
+            if (_thumbnail is not null) return _thumbnail;
+
+            if (!_thumbnailRequested)
+            {
+                _thumbnailRequested = true;
+                if (ShellThumbnailProvider.TryGetCached(Entry.FullPath, ThumbnailSize, out var cached))
+                {
+                    _thumbnail = cached;
+                    return cached;
+                }
+                ShellThumbnailProvider.LoadAsync(Entry.FullPath, Entry.IsDirectory, ThumbnailSize, image =>
+                {
+                    _thumbnail = image;
+                    OnPropertyChanged(nameof(Thumbnail));
+                });
+            }
+            return IconImage;   // 取得できるまではアイコンを表示
+        }
+    }
+
     public string DisplaySize => Entry.IsDirectory ? "<DIR>" : FormatSize(Entry.Size);
 
     public string DisplayDate => Entry.LastModified == default

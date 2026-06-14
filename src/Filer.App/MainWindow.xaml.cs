@@ -41,8 +41,8 @@ public partial class MainWindow : Window
                 Dispatcher.BeginInvoke(() => RefreshColumns(captured), DispatcherPriority.Loaded);
         }
 
-        // アプリ外へのファイル drag&drop(コピー)とダブルクリック(Enter 相当)。
-        foreach (var list in new[] { LeftList, RightList })
+        // アプリ外へのファイル drag&drop(コピー)とダブルクリック(Enter 相当)。詳細・グリッド両方に配線。
+        foreach (var list in new[] { LeftList, RightList, LeftGrid, RightGrid })
         {
             list.PreviewMouseLeftButtonDown += List_PreviewMouseLeftButtonDown;
             list.PreviewMouseMove += List_PreviewMouseMove;
@@ -425,10 +425,11 @@ public partial class MainWindow : Window
         // カーソル移動はウィンドウレベルで明示処理し、モデルを直接動かす。
         // ListView のネイティブ矢印処理に依存しないため、フォーカス確定状況に
         // 関わらず最初の1キーから確実にカーソルが動く。
-        ["cursor.up"] = () => { Vm.Active.MoveCursorWrap(-1); ScrollActiveIntoView(); },   // 先頭で↑なら末尾へループ
-        ["cursor.down"] = () => { Vm.Active.MoveCursorWrap(1); ScrollActiveIntoView(); },  // 末尾で↓なら先頭へループ
-        ["cursor.pageUp"] = () => { Vm.Active.MoveCursor(-PageStep()); ScrollActiveIntoView(); },
-        ["cursor.pageDown"] = () => { Vm.Active.MoveCursor(PageStep()); ScrollActiveIntoView(); },
+        // グリッド表示中は↑↓を行単位移動に切り替える(詳細表示は端でループする1行移動)。
+        ["cursor.up"] = () => CursorVertical(GridDirection.Up, -1),
+        ["cursor.down"] = () => CursorVertical(GridDirection.Down, 1),
+        ["cursor.pageUp"] = () => { if (ActiveIsGrid) GridMovePage(-1); else { Vm.Active.MoveCursor(-PageStep()); ScrollActiveIntoView(); } },
+        ["cursor.pageDown"] = () => { if (ActiveIsGrid) GridMovePage(1); else { Vm.Active.MoveCursor(PageStep()); ScrollActiveIntoView(); } },
         ["cursor.bottom"] = () => { Vm.Active.MoveToBottom(); ScrollActiveIntoView(); },
         ["mark.toggleAll"] = () => Vm.Active.ToggleMarkAll(),     // 全選択 ⇔ 全選択解除
         ["mark.toggle"] = () => Vm.Active.ToggleMarkAndAdvance(),
@@ -438,12 +439,14 @@ public partial class MainWindow : Window
         // 左ペイン: ←=親 / →=右へ。右ペイン: →=親 / ←=左へ。
         ["pane.left"] = () =>
         {
+            if (ActiveIsGrid) { GridMoveCursor(GridDirection.Left); return; }   // グリッドは←で1つ前のタイルへ
             if (Vm.IsLeftActive) Run(Vm.Active.GoToParent);
             else Vm.SwitchPane();
             FocusActiveList();
         },
         ["pane.right"] = () =>
         {
+            if (ActiveIsGrid) { GridMoveCursor(GridDirection.Right); return; }   // グリッドは→で1つ次のタイルへ
             if (Vm.IsLeftActive) Vm.SwitchPane();
             else Run(Vm.Active.GoToParent);
             FocusActiveList();
@@ -454,6 +457,8 @@ public partial class MainWindow : Window
             if (TerminalOpen) CycleTerminalView();
             else CyclePaneLayout();
         },
+        ["view.toggleGrid"] = ToggleGridView,             // 詳細 ⇔ サムネイルグリッド表示
+        ["view.gridSize"] = ToggleGridSize,               // グリッドのタイルサイズ 通常 ⇔ 拡大
         ["view.reload"] = ReloadActivePreservingScroll,   // カーソル項目とスクロール位置を保持して再読込
 
         ["tab.new"] = () => { Run(Vm.Active.AddTab); FocusActiveList(); },
@@ -1227,7 +1232,7 @@ public partial class MainWindow : Window
     private void FocusActiveList()
     {
         UpdateSortIndicators();
-        var list = Vm.IsLeftActive ? LeftList : RightList;
+        var list = ActiveList;
         Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() => FocusSelectedItem(list)));
     }
 
@@ -1247,7 +1252,78 @@ public partial class MainWindow : Window
             list.Focus();
     }
 
-    private ListView ActiveList => Vm.IsLeftActive ? LeftList : RightList;
+    /// <summary>指定側ペインの現在の表示モードに対応する一覧コントロール(詳細リスト or サムネイルグリッド)。</summary>
+    private ListView ListFor(bool isLeft) =>
+        (isLeft ? Vm.Left : Vm.Right).ViewMode == PaneViewMode.Grid
+            ? (isLeft ? LeftGrid : RightGrid)
+            : (isLeft ? LeftList : RightList);
+
+    private ListView ActiveList => ListFor(Vm.IsLeftActive);
+
+    /// <summary>アクティブ側がサムネイルグリッド表示か。</summary>
+    private bool ActiveIsGrid => Vm.Active.ViewMode == PaneViewMode.Grid;
+
+    /// <summary>タイル幅に加える余白/枠/パディング(GridItemStyle 余白3*2 + 枠1*2 + パディング4*2 = 16)。</summary>
+    private const double GridTileChromeWidth = 16;
+    /// <summary>タイル高さに加える分(画像の上下余白6 + 名前最大32 + chrome16)。</summary>
+    private const double GridTileChromeHeight = 6 + 32 + 16;
+
+    /// <summary>アクティブ側グリッドのタイル外形幅(現在のタイルサイズに依存)。</summary>
+    private double GridTileOuterWidth => Vm.Active.GridTileWidth + GridTileChromeWidth;
+    /// <summary>アクティブ側グリッドのタイル外形高さ(現在のタイルサイズに依存)。</summary>
+    private double GridTileOuterHeight => Vm.Active.GridImageSize + GridTileChromeHeight;
+
+    /// <summary>グリッドの現在の列数を表示幅から概算する。</summary>
+    private int GridColumns(ListView grid)
+    {
+        var width = grid.ActualWidth - SystemParameters.VerticalScrollBarWidth - 4;
+        return Math.Max(1, (int)(width / GridTileOuterWidth));
+    }
+
+    /// <summary>グリッドの1ページ(画面)に入る行数を表示高さから概算する。</summary>
+    private int GridRows(ListView grid) =>
+        Math.Max(1, (int)(grid.ActualHeight / GridTileOuterHeight));
+
+    /// <summary>↑↓ をグリッドでは行単位、詳細表示では端ループの1行移動にする。</summary>
+    private void CursorVertical(GridDirection gridDir, int listDelta)
+    {
+        if (ActiveIsGrid) { GridMoveCursor(gridDir); return; }
+        Vm.Active.MoveCursorWrap(listDelta);
+        ScrollActiveIntoView();
+    }
+
+    /// <summary>グリッドでカーソルを指定方向へ動かす(左右は端で回り込み・上下は行単位)。</summary>
+    private void GridMoveCursor(GridDirection dir)
+    {
+        var grid = ActiveList;
+        var next = GridNavigation.Move(Vm.Active.Entries.Count, GridColumns(grid), Vm.Active.SelectedIndex, dir);
+        Vm.Active.MoveCursorTo(next);
+        ScrollActiveIntoView();
+    }
+
+    /// <summary>グリッドで PageUp/Down ぶん(列数×表示行数)カーソルを動かす。</summary>
+    private void GridMovePage(int dirSign)
+    {
+        var grid = ActiveList;
+        var step = GridColumns(grid) * Math.Max(1, GridRows(grid) - 1);
+        Vm.Active.MoveCursor(dirSign * step);
+        ScrollActiveIntoView();
+    }
+
+    /// <summary>Ctrl+G: アクティブ側を 詳細 ⇔ サムネイルグリッド で切り替える。</summary>
+    private void ToggleGridView()
+    {
+        Vm.Active.ToggleViewMode();
+        FocusActiveList();   // 表示する側のコントロールへフォーカスを移す
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(ScrollActiveIntoView));
+    }
+
+    /// <summary>Ctrl+Shift+G: サムネイルグリッドのタイルサイズを 通常 ⇔ 拡大(約2倍)で切り替える。</summary>
+    private void ToggleGridSize()
+    {
+        Vm.Active.ToggleGridSize();
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(ScrollActiveIntoView));
+    }
 
     /// <summary>
     /// アクティブ側を再読込する。カーソル項目(PaneState 側で追従)に加え、

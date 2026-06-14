@@ -39,6 +39,8 @@ public static class KeyBindingActions
         new("history.select", "フォルダー履歴から移動", "移動", new[] { "H" }, "履歴"),
         new("terminal.open", "ターミナルを開く/フォーカス", "ツール", new[] { "T" }, "ターミナル"),
         new("view.toggleFullscreen", "表示切替(通常⇄全画面)", "表示", new[] { "F1" }, "表示切替(通常⇄全画面)"),
+        new("view.toggleGrid", "詳細⇔サムネイル表示の切替", "表示", new[] { "Ctrl+G" }, "サムネ表示"),
+        new("view.gridSize", "サムネイルのサイズ切替(通常⇔拡大)", "表示", new[] { "Ctrl+Shift+G" }, "サムネ拡大"),
         new("view.reload", "最新の状態に更新", "表示", new[] { "F5" }, "更新"),
         new("settings.open", "設定を開く", "ツール", new[] { "Z" }, "設定"),
 

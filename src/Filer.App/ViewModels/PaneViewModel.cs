@@ -49,6 +49,45 @@ public sealed partial class PaneViewModel : ObservableObject
     [ObservableProperty]
     private bool _hasGitRepository;
 
+    /// <summary>一覧の表示形式(詳細 / サムネイルグリッド)。</summary>
+    [ObservableProperty]
+    private PaneViewMode _viewMode = PaneViewMode.Details;
+
+    partial void OnViewModeChanged(PaneViewMode value)
+    {
+        OnPropertyChanged(nameof(DetailsVisibility));
+        OnPropertyChanged(nameof(GridVisibility));
+    }
+
+    /// <summary>詳細表示(リスト)の可視性。</summary>
+    public Visibility DetailsVisibility => ViewMode == PaneViewMode.Grid ? Visibility.Collapsed : Visibility.Visible;
+
+    /// <summary>サムネイルグリッドの可視性。</summary>
+    public Visibility GridVisibility => ViewMode == PaneViewMode.Grid ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>詳細 ⇔ サムネイルグリッドを切り替える。</summary>
+    public void ToggleViewMode() =>
+        ViewMode = ViewMode == PaneViewMode.Grid ? PaneViewMode.Details : PaneViewMode.Grid;
+
+    /// <summary>サムネイルグリッドのタイルサイズ(通常 / 拡大)。</summary>
+    [ObservableProperty]
+    private GridTileSize _gridSize = GridTileSize.Normal;
+
+    partial void OnGridSizeChanged(GridTileSize value)
+    {
+        OnPropertyChanged(nameof(GridTileWidth));
+        OnPropertyChanged(nameof(GridImageSize));
+    }
+
+    /// <summary>グリッド1タイルの幅(px。XAML バインド用)。</summary>
+    public double GridTileWidth => GridTileMetrics.TileWidth(GridSize);
+
+    /// <summary>グリッド1タイル内の画像の一辺(px。XAML バインド用)。</summary>
+    public double GridImageSize => GridTileMetrics.ImageSize(GridSize);
+
+    /// <summary>グリッドのタイルサイズを 通常 ⇔ 拡大 で切り替える。</summary>
+    public void ToggleGridSize() => GridSize = GridTileMetrics.Next(GridSize);
+
     /// <summary>Git 管理下だけバッジ列の固定幅を確保する。</summary>
     public GridLength GitBadgeColumnWidth => HasGitRepository ? new GridLength(19) : new GridLength(0);
 

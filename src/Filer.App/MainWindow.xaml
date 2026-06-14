@@ -250,6 +250,79 @@
             <Setter Property="VirtualizingPanel.VirtualizationMode" Value="Recycling"/>
         </Style>
 
+        <!-- サムネイル(グリッド)表示の1タイル: 画像 + 名前(中央寄せ・最大2行)。
+             文字色は ListViewItem の継承(ディレクトリ色・マーク色)に従う。 -->
+        <DataTemplate x:Key="GridTileTemplate">
+            <StackPanel Width="{Binding DataContext.GridTileWidth, RelativeSource={RelativeSource AncestorType=ListView}}">
+                <Image Source="{Binding Thumbnail}" Stretch="Uniform"
+                       Width="{Binding DataContext.GridImageSize, RelativeSource={RelativeSource AncestorType=ListView}}"
+                       Height="{Binding DataContext.GridImageSize, RelativeSource={RelativeSource AncestorType=ListView}}"
+                       HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,4,0,2"
+                       RenderOptions.BitmapScalingMode="HighQuality" SnapsToDevicePixels="True"/>
+                <TextBlock Text="{Binding Name}" TextAlignment="Center" TextWrapping="Wrap"
+                           TextTrimming="CharacterEllipsis" MaxHeight="32" FontSize="11"/>
+            </StackPanel>
+        </DataTemplate>
+
+        <!-- グリッドの1タイル枠(ListViewItem): マーク=オレンジ背景+太字、
+             アクティブペインの選択タイルはアクセント色の枠で示す(詳細表示の下線に相当)。 -->
+        <Style x:Key="GridItemStyle" TargetType="ListViewItem">
+            <Setter Property="Foreground" Value="{DynamicResource Fg.Primary}"/>
+            <Setter Property="Margin" Value="3"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListViewItem">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}"
+                                BorderBrush="Transparent" BorderThickness="1" CornerRadius="4"
+                                Padding="4" SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding IsSelected, RelativeSource={RelativeSource Self}}" Value="True"/>
+                                    <Condition Binding="{Binding DataContext.IsActive, RelativeSource={RelativeSource AncestorType=ListView}}" Value="True"/>
+                                </MultiDataTrigger.Conditions>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                            </MultiDataTrigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsDirectory}" Value="True">
+                    <Setter Property="Foreground" Value="{DynamicResource Entry.Directory}"/>
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsMarked}" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource Marked.Background}"/>
+                    <Setter Property="Foreground" Value="{DynamicResource Marked.Foreground}"/>
+                    <Setter Property="FontWeight" Value="Bold"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- ペイン共通のサムネイルグリッド(WrapPanel で折り返す ListView)。 -->
+        <Style x:Key="PaneGridStyle" TargetType="ListView">
+            <Setter Property="Background" Value="{DynamicResource Surface.Background}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Foreground" Value="{DynamicResource Fg.Primary}"/>
+            <Setter Property="ItemContainerStyle" Value="{StaticResource GridItemStyle}"/>
+            <Setter Property="ItemTemplate" Value="{StaticResource GridTileTemplate}"/>
+            <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
+            <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto"/>
+            <!-- WrapPanel に折り返し用のビューポート幅を与えるためピクセルスクロールにする。 -->
+            <Setter Property="ScrollViewer.CanContentScroll" Value="False"/>
+            <Setter Property="ItemsPanel">
+                <Setter.Value>
+                    <ItemsPanelTemplate>
+                        <WrapPanel Orientation="Horizontal"/>
+                    </ItemsPanelTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- 一覧の列ヘッダー(名前/拡張子/サイズ/更新日時)。テーマ追従・ホバー強調・クリックでソート。
              列ヘッダーの Content は文字列(ソート時 ▲▼ 付き)なので ContentPresenter で表示する。 -->
         <Style TargetType="GridViewColumnHeader">
@@ -350,10 +423,12 @@
                             </WrapPanel>
                         </DockPanel>
                     </Border>
+                    <Grid>
                     <local:PaneListView x:Name="LeftList" Style="{StaticResource PaneListStyle}"
                               DataContext="{Binding Left}"
                               ItemsSource="{Binding Entries}"
                               SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}"
+                              Visibility="{Binding DetailsVisibility}"
                               GotKeyboardFocus="Pane_GotKeyboardFocus" Tag="Left"
                               GridViewColumnHeader.Click="ColumnHeader_Click">
                         <ListView.View>
@@ -374,6 +449,13 @@
                             </GridView>
                         </ListView.View>
                     </local:PaneListView>
+                    <local:PaneListView x:Name="LeftGrid" Style="{StaticResource PaneGridStyle}"
+                              DataContext="{Binding Left}"
+                              ItemsSource="{Binding Entries}"
+                              SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}"
+                              Visibility="{Binding GridVisibility}"
+                              GotKeyboardFocus="Pane_GotKeyboardFocus" Tag="Left"/>
+                    </Grid>
                 </DockPanel>
             </Border>
 
@@ -414,10 +496,12 @@
                             </WrapPanel>
                         </DockPanel>
                     </Border>
+                    <Grid>
                     <local:PaneListView x:Name="RightList" Style="{StaticResource PaneListStyle}"
                               DataContext="{Binding Right}"
                               ItemsSource="{Binding Entries}"
                               SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}"
+                              Visibility="{Binding DetailsVisibility}"
                               GotKeyboardFocus="Pane_GotKeyboardFocus" Tag="Right"
                               GridViewColumnHeader.Click="ColumnHeader_Click">
                         <ListView.View>
@@ -438,6 +522,13 @@
                             </GridView>
                         </ListView.View>
                     </local:PaneListView>
+                    <local:PaneListView x:Name="RightGrid" Style="{StaticResource PaneGridStyle}"
+                              DataContext="{Binding Right}"
+                              ItemsSource="{Binding Entries}"
+                              SelectedIndex="{Binding SelectedIndex, Mode=TwoWay}"
+                              Visibility="{Binding GridVisibility}"
+                              GotKeyboardFocus="Pane_GotKeyboardFocus" Tag="Right"/>
+                    </Grid>
                 </DockPanel>
             </Border>
 
