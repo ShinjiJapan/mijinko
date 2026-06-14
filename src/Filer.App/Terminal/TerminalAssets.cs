@@ -1,5 +1,6 @@
 using System.IO;
 using System.Reflection;
+using Filer.Core;
 
 namespace Filer.App.Terminal;
 
@@ -10,8 +11,13 @@ namespace Filer.App.Terminal;
 /// </summary>
 public static class TerminalAssets
 {
-    /// <summary>アセットを展開し、展開先フォルダーのパスを返す(展開済みならスキップ)。</summary>
-    public static string EnsureExtracted()
+    /// <summary>
+    /// アセットを展開し、展開先フォルダーのパスを返す(展開済みならスキップ)。
+    /// <paramref name="fullscreenGestures"/>=表示切替(1画面⇄全画面)、
+    /// <paramref name="focusBackGestures"/>=一覧へフォーカスを戻すキー(いずれも設定値)。
+    /// </summary>
+    public static string EnsureExtracted(
+        IReadOnlyList<string> fullscreenGestures, IReadOnlyList<string> focusBackGestures)
     {
         var dir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -22,11 +28,19 @@ public static class TerminalAssets
         ExtractResource(dir, "xterm.css");
         ExtractResource(dir, "xterm-addon-fit.min.js");
 
+        var html = BuildHtml(fullscreenGestures, focusBackGestures);
         var htmlPath = Path.Combine(dir, "terminal.html");
-        if (!File.Exists(htmlPath) || File.ReadAllText(htmlPath) != Html)
-            File.WriteAllText(htmlPath, Html);
+        if (!File.Exists(htmlPath) || File.ReadAllText(htmlPath) != html)
+            File.WriteAllText(htmlPath, html);
         return dir;
     }
+
+    /// <summary>設定キー(表示切替・フォーカス戻し)の判定式を埋め込んだ terminal.html を作る。</summary>
+    private static string BuildHtml(
+        IReadOnlyList<string> fullscreenGestures, IReadOnlyList<string> focusBackGestures) =>
+        HtmlTemplate
+            .Replace("__TOGGLE_EXPR__", KeyChordJs.MatchExpression(fullscreenGestures, "ev"))
+            .Replace("__FOCUSBACK_EXPR__", KeyChordJs.MatchExpression(focusBackGestures, "ev"));
 
     /// <summary>埋め込みリソースを展開先へ書き出す(サイズ一致なら最新とみなしスキップ)。</summary>
     private static void ExtractResource(string dir, string fileName)
@@ -44,10 +58,10 @@ public static class TerminalAssets
         resource.CopyTo(file);
     }
 
-    // xterm.js をホストするページ。キー入力(onData)・サイズ(fit)・フォーカス戻し(Ctrl+T)を
+    // xterm.js をホストするページ。キー入力(onData)・サイズ(fit)・フォーカス戻し(設定キー)を
     // chrome.webview.postMessage の JSON でホスト側とやり取りする。
     // ホスト→ページ: 文字列メッセージ=端末出力(term.write)、JSON {type:'focus'}=フォーカス要求。
-    private const string Html = """
+    private const string HtmlTemplate = """
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -85,15 +99,15 @@ function doFit() {
 window.addEventListener('resize', doFit);
 
 term.onData(d => post({ type: 'input', data: d }));
-// Ctrl+T はシェルへ送らず、ファイラーの一覧へフォーカスを戻す合図にする。
-// F1 はターミナル表示の切替(1画面 ⇄ 全画面)。アプリ全体の表示トグルに合わせる。
+// フォーカス戻し・表示切替キー(いずれも設定値)はシェルへ送らず、ファイラー側の操作として横取りする。
+// フォーカス戻し=一覧へフォーカスを戻す。表示切替=ターミナル表示の切替(1画面 ⇄ 全画面)。
 term.attachCustomKeyEventHandler(ev => {
   if (ev.type !== 'keydown') return true;
-  if (ev.ctrlKey && !ev.shiftKey && !ev.altKey && ev.key.toLowerCase() === 't') {
+  if (__FOCUSBACK_EXPR__) {
     post({ type: 'focus-list' });
     return false;
   }
-  if (ev.key === 'F1') {
+  if (__TOGGLE_EXPR__) {
     post({ type: 'cycle-view' });
     return false;
   }

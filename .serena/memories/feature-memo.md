@@ -13,6 +13,10 @@
 - `CycleMemoView`(F1)= OnePane ⇄ FullScreen(全列 ColumnSpan=3)。`view.toggleFullscreen` のディスパッチは **メモ→ターミナル→ファイルペイン** の順で対象選択。
 - 保存: `MemoBox_TextChanged` → 500ms デバウンス `DispatcherTimer` → `FlushMemo`。`CloseMemo`/`CycleMemoView`/`OnClosed` でも書き出す。
 - メモ入力中のキー処理: `OnPreviewKeyDown` 冒頭(WebView2 分岐の後)で `e.OriginalSource` が `MemoBox` なら Esc=閉じる・F1(view.toggleFullscreen)=全画面切替だけ処理し、それ以外(C/M/D 等)は奪わずメモへ委ねて return。
-- Tab(`pane.switchOrTerminal`=`SwitchPaneOrFocusTerminal`): メモ表示中は **MemoVisible を最優先で判定し `MemoBox.Focus()`** する(ターミナルの `FocusActiveTerminal` と同じ位置づけ)。メモは片側ペインを覆うため、Tab で「裏の(覆われた)ファイルペイン」へ移らずメモ入力欄へ移す。メモから一覧へ戻すのは Ctrl+Tab(WPF 既定で AcceptsTab の TextBox からフォーカスが抜ける)/ Esc。この分岐が無いと Ctrl+Tab→一覧→Tab で裏ペインにフォーカスが行く不具合になる。
+- ペイン切替のオーバーレイ対応(Tab・←/→ 共通): `FocusPaneSide(bool left)` に集約。指定側がメモ/ターミナルに覆われている(片側表示でその側、または全画面表示)なら `MemoBox.Focus()`/`FocusActiveTerminal()`、でなければ `SetActivePaneFlags(left)`+`FocusActiveList()`。**裏の(覆われた)ファイルペインを操作対象にしない**のが要点。
+  - `pane.switchOrTerminal`(Tab)= `FocusPaneSide(!Vm.IsLeftActive)`。
+  - `pane.left`/`pane.right`(←/→)の「相手ペインへ切替」分岐 = `FocusPaneSide(left:true/false)`(親フォルダーへ行く内側方向は従来どおり `GoToParent`+`FocusActiveList`)。グリッド表示中は ←/→ がタイル移動になり切替自体起きない。
+  - メモから一覧へ戻すのは Ctrl+Tab(WPF 既定で AcceptsTab の TextBox からフォーカスが抜ける)/ Esc。
+  - この共通化前は Tab だけ対策・←/→ が未対策で、メモ/ターミナル表示中に ←/→ で裏ペインがアクティブ化する不具合があった(旧 `SwitchPaneOrFocusTerminal` は廃止)。
 
 詳細なオーバーレイ列スパン方式は `mem:architecture-overview` のターミナル節(`ApplyTerminalView`)と同じ考え方。

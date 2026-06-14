@@ -5,14 +5,26 @@ namespace Filer.Core;
 
 /// <summary>
 /// side-by-side 差分(<see cref="DiffRow"/> 列)を、テーマ配色付きの完全な HTML 文書へ変換する(UI 非依存)。
-/// 行種別ごとに CSS クラス(equal/modified/deleted/inserted)で色分けし、Esc/Enter で閉じ・F1 で
+/// 行種別ごとに CSS クラス(equal/modified/deleted/inserted)で色分けし、Esc/Enter で閉じ・表示切替キー(設定値)で
 /// 表示形態切替をホスト(WPF)へ通知する。差分専用の add/del/mod 背景色は <see cref="ThemeColors.IsDark"/> で切り替える。
 /// </summary>
 public static class DiffHtmlRenderer
 {
+    /// <summary>既定の表示切替ジェスチャ(設定で上書きしないときの値)。</summary>
+    private static readonly string[] DefaultToggleGestures = { "F1" };
+
     /// <summary>差分行列と左右ファイル名・テーマ配色から HTML 文書を生成する。</summary>
     public static string ToHtmlDocument(
-        IReadOnlyList<DiffRow> rows, string leftName, string rightName, ThemeColors colors)
+        IReadOnlyList<DiffRow> rows, string leftName, string rightName, ThemeColors colors) =>
+        ToHtmlDocument(rows, leftName, rightName, colors, DefaultToggleGestures);
+
+    /// <summary>
+    /// 差分行列と左右ファイル名・テーマ配色から HTML 文書を生成する。
+    /// <paramref name="fullscreenGestures"/> は表示切替(全画面⇄ペイン領域)を発火させるキー(設定値)。
+    /// </summary>
+    public static string ToHtmlDocument(
+        IReadOnlyList<DiffRow> rows, string leftName, string rightName, ThemeColors colors,
+        IReadOnlyList<string> fullscreenGestures)
     {
         var sb = new StringBuilder();
         sb.Append("<!DOCTYPE html>\n");
@@ -57,7 +69,7 @@ public static class DiffHtmlRenderer
         }
 
         sb.Append("</tbody>\n</table>\n");
-        sb.Append("<script>\n").Append(ScriptBody).Append("\n</script>\n");
+        sb.Append("<script>\n").Append(BuildScript(fullscreenGestures)).Append("\n</script>\n");
         sb.Append("</body>\n</html>\n");
         return sb.ToString();
     }
@@ -67,25 +79,38 @@ public static class DiffHtmlRenderer
     /// <paramref name="identical"/> が true なら内容一致、false なら相違を伝える。
     /// </summary>
     public static string BinaryNoticeDocument(
-        string leftName, string rightName, bool identical, ThemeColors colors)
+        string leftName, string rightName, bool identical, ThemeColors colors) =>
+        BinaryNoticeDocument(leftName, rightName, identical, colors, DefaultToggleGestures);
+
+    /// <summary>バイナリファイルの案内文書(表示切替キーを指定)。</summary>
+    public static string BinaryNoticeDocument(
+        string leftName, string rightName, bool identical, ThemeColors colors,
+        IReadOnlyList<string> fullscreenGestures)
     {
         var verdict = identical ? "内容は同一です。" : "内容は異なります。";
         return NoticeDocument(leftName, rightName,
-            new[] { "バイナリファイルのため行差分は表示できません。", verdict }, colors);
+            new[] { "バイナリファイルのため行差分は表示できません。", verdict }, colors, fullscreenGestures);
     }
 
     /// <summary>ファイルが大きすぎて行差分を表示しないときの案内文書。</summary>
     public static string SizeLimitNoticeDocument(
-        string leftName, string rightName, long maxBytes, ThemeColors colors)
+        string leftName, string rightName, long maxBytes, ThemeColors colors) =>
+        SizeLimitNoticeDocument(leftName, rightName, maxBytes, colors, DefaultToggleGestures);
+
+    /// <summary>サイズ超過の案内文書(表示切替キーを指定)。</summary>
+    public static string SizeLimitNoticeDocument(
+        string leftName, string rightName, long maxBytes, ThemeColors colors,
+        IReadOnlyList<string> fullscreenGestures)
     {
         var mb = maxBytes / (1024.0 * 1024.0);
         return NoticeDocument(leftName, rightName,
-            new[] { $"ファイルが大きすぎるため差分を表示できません(上限 {mb:0.#}MB)。" }, colors);
+            new[] { $"ファイルが大きすぎるため差分を表示できません(上限 {mb:0.#}MB)。" }, colors, fullscreenGestures);
     }
 
     /// <summary>中央寄せの案内文書(バイナリ・サイズ超過などの共通レイアウト)。</summary>
     private static string NoticeDocument(
-        string leftName, string rightName, IReadOnlyList<string> messages, ThemeColors colors)
+        string leftName, string rightName, IReadOnlyList<string> messages, ThemeColors colors,
+        IReadOnlyList<string> fullscreenGestures)
     {
         var sb = new StringBuilder();
         sb.Append("<!DOCTYPE html>\n<html lang=\"ja\">\n<head>\n<meta charset=\"utf-8\">\n<style>\n");
@@ -98,7 +123,7 @@ public static class DiffHtmlRenderer
         sb.Append("<p class=\"files\">").Append(Esc(leftName)).Append("  ⇔  ").Append(Esc(rightName)).Append("</p>\n");
         foreach (var message in messages)
             sb.Append("<p>").Append(Esc(message)).Append("</p>\n");
-        sb.Append("</div>\n<script>\n").Append(ScriptBody).Append("\n</script>\n</body>\n</html>\n");
+        sb.Append("</div>\n<script>\n").Append(BuildScript(fullscreenGestures)).Append("\n</script>\n</body>\n</html>\n");
         return sb.ToString();
     }
 
@@ -160,15 +185,15 @@ tr.modified td.s.r span.chg {{ background: {insStrong}; border-radius: 2px; }}
 ";
     }
 
-    // Esc/Enter=閉じる, F1=表示形態切替 をホスト(WPF)へ通知する。MarkdownRenderer と同じプロトコル。
-    private const string ScriptBody = @"
-document.addEventListener('keydown', function (e) {
-  if (e.key === 'F1') {
+    // Esc/Enter=閉じる, 表示切替キー(設定値)=表示形態切替 をホスト(WPF)へ通知する。MarkdownRenderer と同じプロトコル。
+    private static string BuildScript(IReadOnlyList<string> gestures) => $@"
+document.addEventListener('keydown', function (e) {{
+  if ({KeyChordJs.MatchExpression(gestures, "e")}) {{
     e.preventDefault();
     if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage('cycle-view');
     return;
-  }
+  }}
   if (e.key !== 'Escape' && e.key !== 'Enter') return;
   if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage('close');
-});";
+}});";
 }

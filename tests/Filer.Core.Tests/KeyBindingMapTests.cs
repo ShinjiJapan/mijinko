@@ -229,6 +229,47 @@ public sealed class KeyBindingMapTests
         Assert.Contains("Shift+K:SkimDown", shift);   // SkimDown は既定ツール(動的アクション)
     }
 
+    [Fact]
+    public void KeyHelp_Context_ResolvesGesturesFromMapAndFixedKeys()
+    {
+        var map = KeyBindingMap.Build(null);
+        var help = KeyHelp.BuildContext(map, new[]
+        {
+            new KeyHelp.ContextHelpEntry(null, "Escape", "閉じる"),               // 固定キー
+            new KeyHelp.ContextHelpEntry("view.toggleFullscreen", null, "全画面切替"), // 設定から動的
+        });
+        Assert.Equal("Esc:閉じる  F1:全画面切替", help);
+    }
+
+    [Fact]
+    public void KeyHelp_Context_FollowsOverrides()
+    {
+        var map = KeyBindingMap.Build(new Dictionary<string, string[]>
+        {
+            ["terminal.collapse"] = new[] { "F8" },
+        });
+        var help = KeyHelp.BuildContext(map, new[]
+        {
+            new KeyHelp.ContextHelpEntry("terminal.collapse", null, "たたむ"),
+        });
+        Assert.Equal("F8:たたむ", help);
+    }
+
+    [Fact]
+    public void KeyHelp_Context_SkipsUnboundActions()
+    {
+        var map = KeyBindingMap.Build(new Dictionary<string, string[]>
+        {
+            ["terminal.collapse"] = Array.Empty<string>(),   // 割り当てなし
+        });
+        var help = KeyHelp.BuildContext(map, new[]
+        {
+            new KeyHelp.ContextHelpEntry(null, "Ctrl+T", "一覧へ"),
+            new KeyHelp.ContextHelpEntry("terminal.collapse", null, "たたむ"),
+        });
+        Assert.Equal("Ctrl+T:一覧へ", help);
+    }
+
     // ---- 外部ツール(動的アクション) ----
 
     private static IEnumerable<KeyBindingAction> ToolActions() =>

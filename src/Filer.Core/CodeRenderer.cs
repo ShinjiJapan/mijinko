@@ -66,7 +66,18 @@ public static class CodeRenderer
     /// <summary>
     /// ソース文字列を、指定テーマの背景色と highlight.js を含む完全な HTML 文書へ変換する。
     /// </summary>
-    public static string ToHtmlDocument(string code, string languageId, ThemeColors colors)
+    /// <summary>既定の表示切替ジェスチャ(設定で上書きしないときの値)。</summary>
+    private static readonly string[] DefaultToggleGestures = { "F1" };
+
+    public static string ToHtmlDocument(string code, string languageId, ThemeColors colors) =>
+        ToHtmlDocument(code, languageId, colors, DefaultToggleGestures);
+
+    /// <summary>
+    /// ソースを highlight.js で表示する完全な HTML 文書を生成する。
+    /// <paramref name="fullscreenGestures"/> は表示切替(全画面⇄ペイン領域)を発火させるキー(設定値)。
+    /// </summary>
+    public static string ToHtmlDocument(
+        string code, string languageId, ThemeColors colors, IReadOnlyList<string> fullscreenGestures)
     {
         var langClass = string.IsNullOrEmpty(languageId) ? string.Empty : $" class=\"language-{languageId}\"";
         var theme = colors.IsDark ? "hl-dark.css" : "hl-light.css";
@@ -82,7 +93,7 @@ public static class CodeRenderer
         sb.Append("<script src=\"powershell.min.js\"></script>\n");
         sb.Append("<script src=\"dos.min.js\"></script>\n");
         sb.Append("<script src=\"apex.min.js\"></script>\n");
-        sb.Append("<script>\n").Append(ScriptBody).Append("\n</script>\n");
+        sb.Append("<script>\n").Append(BuildScript(fullscreenGestures)).Append("\n</script>\n");
         sb.Append("</body>\n</html>\n");
         return sb.ToString();
     }
@@ -95,22 +106,22 @@ pre code.hljs {{ font-family: 'Consolas', 'MS Gothic', monospace; font-size: 13p
        line-height: 1.5; padding: 12px 16px; min-height: 100vh; box-sizing: border-box; }}
 ";
 
-    // highlight.js を走らせ、Esc/Enter=閉じる・F1=表示形態切替 をホスト(WPF)へ通知する。
-    private const string ScriptBody = @"
+    // highlight.js を走らせ、表示切替キー(設定値)=表示形態切替・S=ソース切替・Esc/Enter=閉じる をホストへ通知する。
+    private static string BuildScript(IReadOnlyList<string> gestures) => $@"
 hljs.highlightAll();
-document.addEventListener('keydown', function (e) {
-  if (e.key === 'F1') {
+document.addEventListener('keydown', function (e) {{
+  if ({KeyChordJs.MatchExpression(gestures, "e")}) {{   // 表示形態の切替(全画面 ⇄ ペイン領域)をホストへ通知
     e.preventDefault();
     if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage('cycle-view');
     return;
-  }
-  if (e.key === 's' || e.key === 'S') {   // S: レンダリング ⇄ ソース表示をホストへ通知
+  }}
+  if (e.key === 's' || e.key === 'S') {{   // S: レンダリング ⇄ ソース表示をホストへ通知
     e.preventDefault();
     if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage('toggle-source');
     return;
-  }
+  }}
   if (e.key !== 'Escape' && e.key !== 'Enter') return;
   if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage('close');
-});
+}});
 ";
 }

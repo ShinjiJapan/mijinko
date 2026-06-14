@@ -24,6 +24,8 @@ public partial class PreviewWindow : Window
     private readonly MainViewModel _main;
     private readonly PaneViewModel _pane;
     private readonly FrameworkElement _paneRegion;
+    // 設定キー割り当て。表示切替・画像操作(コピー/移動/削除/再読込)を設定値どおりに効かせるため使う。
+    private readonly KeyBindingMap _keyMap;
     private PreviewKind _kind;
     private bool _isImage;
     // Markdown/Html を S キーでソース(テキスト)表示に切り替えているか。
@@ -34,23 +36,24 @@ public partial class PreviewWindow : Window
     private bool _hostMapped;
     // 表示対象自身のフォルダー(Markdown の相対画像解決用)をマップ済みか。
     private bool _docMapped;
-    // 描画完了時に WebView へフォーカスを移すか。自前生成ページ(Markdig/highlight.js。S/Esc/F1 を
+    // 描画完了時に WebView へフォーカスを移すか。自前生成ページ(Markdig/highlight.js。S/Esc/表示切替 を
     // JS で受けネイティブスクロールさせる)は true、外部コンテンツ(HTML ブラウザ描画/PDF)は false。
     private bool _focusWebViewOnLoad;
-    /// <summary>表示形態(F1 / F で 全画面 ⇄ ペイン領域 をトグル)。</summary>
+    /// <summary>表示形態(表示切替キーで 全画面 ⇄ ペイン領域 をトグル)。</summary>
     private enum PreviewView { Maximized, PaneRegion }
     private PreviewView _view = PreviewView.Maximized;
     // true: 横並び2枚表示(左=カーソル画像/右=次の画像)。1 キーで切り替える。
     private bool _twoUp;
 
-    public PreviewWindow(MainViewModel main, FrameworkElement paneRegion)
+    public PreviewWindow(MainViewModel main, FrameworkElement paneRegion, KeyBindingMap keyMap)
     {
         InitializeComponent();
-        // 表示専用(テキストは読み取り専用)。日本語入力 ON でも F/Esc 等が効くよう IME を無効化する。
+        // 表示専用(テキストは読み取り専用)。日本語入力 ON でも 表示切替/Esc 等が効くよう IME を無効化する。
         Ime.Disable(this);
         _main = main;
         _pane = main.Active;
         _paneRegion = paneRegion;
+        _keyMap = keyMap;
         // Markdown / HTML はソース表示で開く(S キーでレンダリングへ切替)。
         _sourceMode = FilePreview.InitialSourceMode(FilePreview.ClassifyByExtension(_pane.SelectedItemPath));
         ShowCurrent();
@@ -192,7 +195,7 @@ public partial class PreviewWindow : Window
             // WebView2 にフォーカスがある間はキーが WPF 側へ届かないため、HTML 側の Esc/Enter 通知で閉じる。
             c.WebMessageReceived += OnWebViewMessage;
             // 自前生成ページ(Markdig/highlight.js)では WebView へフォーカスを移し、↑↓等のネイティブ
-            // スクロールと JS 側の S/Esc/F1 処理を効かせる。外部コンテンツ(HTML/PDF)では移さない。
+            // スクロールと JS 側の S/Esc/表示切替 処理を効かせる。外部コンテンツ(HTML/PDF)では移さない。
             c.NavigationCompleted += (_, _) =>
             {
                 if (_focusWebViewOnLoad) MarkdownView.Focus();
@@ -228,7 +231,8 @@ public partial class PreviewWindow : Window
         var previewDir = GetPreviewDir();
         EnsureMermaidScript(previewDir);
         CleanupOldPages(previewDir);
-        var html = MarkdownRenderer.ToHtmlDocument(markdown, ThemeManager.CurrentMarkdownColors());
+        var html = MarkdownRenderer.ToHtmlDocument(markdown, ThemeManager.CurrentMarkdownColors(),
+            _keyMap.GesturesFor("view.toggleFullscreen"));
         // 実ファイルは相対画像(上位 ../ も含む)を解決し、必要なルートを仮想ホストへマップする。書庫内は対象外。
         string? docRoot = null;
         if (!ArchivePath.TrySplit(path, out _, out _) && Path.GetDirectoryName(path) is { } mdDir)
@@ -270,7 +274,8 @@ public partial class PreviewWindow : Window
         CleanupOldPages(previewDir);
         var pageName = $"page-{Guid.NewGuid():N}.html";
         File.WriteAllText(Path.Combine(previewDir, pageName),
-            CodeRenderer.ToHtmlDocument(code, CodeRenderer.LanguageId(path), ThemeManager.CurrentMarkdownColors()));
+            CodeRenderer.ToHtmlDocument(code, CodeRenderer.LanguageId(path), ThemeManager.CurrentMarkdownColors(),
+                _keyMap.GesturesFor("view.toggleFullscreen")));
 
         try
         {
@@ -419,7 +424,7 @@ public partial class PreviewWindow : Window
     }
 
     /// <summary>
-    /// WebView2 内の通知(Esc/Enter=閉じる, F1=表示切替, S=ソース切替)を処理する(↑↓等はブラウザのスクロールに委ねる)。
+    /// WebView2 内の通知(Esc/Enter=閉じる, cycle-view=表示切替, S=ソース切替)を処理する(↑↓等はブラウザのスクロールに委ねる)。
     /// Markdown/Code はレンダリング中に WebView がフォーカスを持つため、S は HTML 側から通知される。
     /// </summary>
     private void OnWebViewMessage(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
@@ -583,7 +588,36 @@ public partial class PreviewWindow : Window
             ShowNearestImageOrClose();
     }
 
-    /// <summary>F / F1: 表示形態を 全画面 ⇄ ペイン領域 でトグルする。</summary>
+    /// <summary>
+    /// 設定キーに割り当てられたアクションを処理する(処理したら true)。表示切替は全種別共通、
+    /// コピー/移動/削除/再読込は画像表示中のみ。割り当ては設定(<see cref="KeyBindingMap"/>)に従う。
+    /// </summary>
+    private bool TryHandleBoundAction(Key key, ModifierKeys modifiers)
+    {
+        switch (KeyChordWpf.Resolve(_keyMap, key, modifiers))
+        {
+            case "view.toggleFullscreen":
+                CyclePreviewView();
+                return true;
+            case "file.copy" when _isImage:        // コピー(確認なし)
+                CopyToOther();
+                return true;
+            case "file.move" when _isImage:        // 移動(確認なし)
+                MoveToOther();
+                return true;
+            case "file.delete" when _isImage:      // 削除(確認なし)
+                DeleteCurrent();
+                return true;
+            case "view.reload" when _isImage:      // ペインを再読込し、現在位置の画像を再表示
+                if (RunOp(_pane.Reload))
+                    ShowNearestImageOrClose();
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>表示切替キー: 表示形態を 全画面 ⇄ ペイン領域 でトグルする。</summary>
     private void CyclePreviewView()
     {
         _view = _view == PreviewView.Maximized ? PreviewView.PaneRegion : PreviewView.Maximized;
@@ -648,17 +682,18 @@ public partial class PreviewWindow : Window
     {
         base.OnPreviewKeyDown(e);
 
+        // 設定キーに割り当てられた操作(表示切替・画像のコピー/移動/削除/再読込)を先に処理する。
+        if (TryHandleBoundAction(e.Key, Keyboard.Modifiers))
+        {
+            e.Handled = true;
+            return;
+        }
+
         switch (e.Key)
         {
             case Key.Escape:
             case Key.Enter:
                 Close();
-                e.Handled = true;
-                break;
-
-            case Key.F:                      // F / F1: 全画面 ⇄ ペイン領域
-            case Key.F1:
-                CyclePreviewView();
                 e.Handled = true;
                 break;
 
@@ -738,28 +773,6 @@ public partial class PreviewWindow : Window
 
             case Key.End when ShowingWebDoc:
                 ScrollPdf("End", 35);
-                e.Handled = true;
-                break;
-
-            case Key.C when _isImage:        // コピー(確認なし)
-                CopyToOther();
-                e.Handled = true;
-                break;
-
-            case Key.M when _isImage:        // 移動(確認なし)
-                MoveToOther();
-                e.Handled = true;
-                break;
-
-            case Key.D when _isImage:        // 削除(確認なし)
-            case Key.Delete when _isImage:
-                DeleteCurrent();
-                e.Handled = true;
-                break;
-
-            case Key.F5 when _isImage:       // ペインを再読込し、現在位置の画像を再表示
-                if (RunOp(_pane.Reload))
-                    ShowNearestImageOrClose();
                 e.Handled = true;
                 break;
 

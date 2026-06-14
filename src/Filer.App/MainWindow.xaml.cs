@@ -72,17 +72,28 @@ public partial class MainWindow : Window
 
         // 別アプリへ移った隙に Ctrl を離した等で表示が固まらないよう、非アクティブ化で非 Ctrl 表示へ戻す。
         Deactivated += (_, _) => UpdateKeyHelp();
+
+        // メモへフォーカスが出入りしたら(キー押下を待たずに)フッターを切り替える。
+        // ターミナル(WebView2)はフォーカスが WPF の IsKeyboardFocusWithin に安定して
+        // 反映されないため _terminalFocused フラグで追跡する(FocusTerminalPanel/FocusActiveList)。
+        MemoHost.IsKeyboardFocusWithinChanged += (_, _) => UpdateKeyHelp();
     }
+
+    /// <summary>ターミナル(WebView2)にフォーカスがあるか。フッター表示の状態判定に使う。</summary>
+    private bool _terminalFocused;
 
     // ---- キー割り当て。設定(settings.json)の上書きを反映してディスパッチする ----
 
     /// <summary>(キー, 修飾) → アクション Id。設定から構築する。</summary>
     private readonly Dictionary<(Key, ModifierKeys), string> _keyToAction = new();
 
-    /// <summary>ターミナルにフォーカスがある間でもファイラー側で処理してよいアクション Id(これ以外は端末へ委ねる)。</summary>
+    /// <summary>
+    /// ターミナルにフォーカスがある間でもファイラー側(WPF)で処理してよいアクション Id(これ以外は端末へ委ねる)。
+    /// 表示切替・一覧へフォーカス戻し(terminal.focusBack)は terminal.html の JS が設定キーで横取りするためここには含めない。
+    /// </summary>
     private static readonly HashSet<string> TerminalContextActions = new()
     {
-        "terminal.focusBack", "terminal.collapse",
+        "terminal.collapse",
     };
 
     /// <summary>組み込みアクション Id → 実行処理(固定)。</summary>
@@ -95,6 +106,23 @@ public partial class MainWindow : Window
     private KeyBindingMap? _keyMap;
 
     private string _normalKeyHelp = "", _ctrlKeyHelp = "", _shiftKeyHelp = "";
+    private string _memoKeyHelp = "", _terminalKeyHelp = "";
+
+    /// <summary>メモ編集中(MemoBox フォーカス)に効くキー。view.toggleFullscreen は設定から動的に引く。</summary>
+    private static readonly IReadOnlyList<KeyHelp.ContextHelpEntry> MemoHelpEntries = new[]
+    {
+        new KeyHelp.ContextHelpEntry(null, "Escape", "閉じる"),
+        new KeyHelp.ContextHelpEntry("view.toggleFullscreen", null, "全画面切替"),
+    };
+
+    /// <summary>ターミナルフォーカス中に効くキー。Ctrl+T/F1 は terminal.html 側 JS の固定キー、
+    /// terminal.collapse は設定から動的に引く。</summary>
+    private static readonly IReadOnlyList<KeyHelp.ContextHelpEntry> TerminalHelpEntries = new[]
+    {
+        new KeyHelp.ContextHelpEntry(null, "Ctrl+T", "一覧へ"),
+        new KeyHelp.ContextHelpEntry("terminal.collapse", null, "たたむ"),
+        new KeyHelp.ContextHelpEntry(null, "F1", "表示切替"),
+    };
 
     /// <summary>設定からキー割り当て表・ツール実行処理・フッターヘルプを作り直す(設定変更後にも呼ぶ)。</summary>
     private void RebuildKeyBindings()
@@ -121,12 +149,26 @@ public partial class MainWindow : Window
         _normalKeyHelp = KeyHelp.BuildNormal(map);
         _ctrlKeyHelp = KeyHelp.BuildCtrl(map);
         _shiftKeyHelp = KeyHelp.BuildShift(map);
+        _memoKeyHelp = KeyHelp.BuildContext(map, MemoHelpEntries);
+        _terminalKeyHelp = KeyHelp.BuildContext(map, TerminalHelpEntries);
         UpdateKeyHelp();
     }
 
-    /// <summary>現在の修飾キー(Ctrl/Shift)に応じてフッターのキー操作説明を切り替える。</summary>
+    /// <summary>フッターのキー操作説明を現在の状態に合わせて切り替える。
+    /// テキストエディター(メモ)・ターミナルなどキー操作が変わる画面アクティブ時は、
+    /// その状態で使えるキーの一覧を表示する。それ以外は修飾キー(Ctrl/Shift)に応じた一覧。</summary>
     private void UpdateKeyHelp()
     {
+        if (MemoVisible && MemoBox.IsKeyboardFocusWithin)
+        {
+            KeyHelpText.Text = _memoKeyHelp;
+            return;
+        }
+        if (TerminalVisible && _terminalFocused)
+        {
+            KeyHelpText.Text = _terminalKeyHelp;
+            return;
+        }
         KeyHelpText.Text =
             Keyboard.Modifiers.HasFlag(ModifierKeys.Control) ? _ctrlKeyHelp :
             Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? _shiftKeyHelp :
@@ -346,7 +388,7 @@ public partial class MainWindow : Window
         ResetPaneLayout();   // ペイン切替で全画面状態を解除し 50/50 に戻す
     }
 
-    /// <summary>アクティブ側フラグだけを設定する(ペイン配置はそのまま。F1 の全画面制御から使う)。</summary>
+    /// <summary>アクティブ側フラグだけを設定する(ペイン配置はそのまま。表示切替の全画面制御から使う)。</summary>
     private void SetActivePaneFlags(bool isLeft)
     {
         Vm.IsLeftActive = isLeft;
@@ -392,6 +434,9 @@ public partial class MainWindow : Window
         if (KeyLogPath is not null)
             File.AppendAllText(KeyLogPath,
                 $"Key={e.Key} Sys={e.SystemKey} Ime={e.ImeProcessedKey} Mod={Keyboard.Modifiers} Src={e.OriginalSource?.GetType().Name}\n");
+        // キー送信元でターミナルフォーカスを確定させる(WebView2 のフォーカスは
+        // IsKeyboardFocusWithin に安定して出ないため。マウス操作後もこれで自己補正される)。
+        _terminalFocused = e.OriginalSource is Microsoft.Web.WebView2.Wpf.WebView2;
         UpdateKeyHelp();   // Ctrl 押下開始でフッターを Ctrl 系へ切り替える
 
         // Alt 併用時は実キーが SystemKey、IME 処理時は ImeProcessedKey 側に入る。
@@ -407,9 +452,9 @@ public partial class MainWindow : Window
 
         var modifiers = Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt);
 
-        // ターミナル(WebView2)にフォーカスがある間は、端末専用キー(一覧へ戻る/たたむ)だけ処理し、
+        // ターミナル(WebView2)にフォーカスがある間は、端末専用キー(表示をたたむ)だけ処理し、
         // それ以外のキー(矢印・Tab・ファンクション等。既定では端末へ届かずファイラーが奪っていた)は
-        // 一切処理せず端末へ委ねる。Ctrl+T/F1 は terminal.html 側の JS が処理する。
+        // 一切処理せず端末へ委ねる。表示切替・一覧へフォーカス戻しは terminal.html 側の JS が設定キーで処理する。
         if (e.OriginalSource is Microsoft.Web.WebView2.Wpf.WebView2)
         {
             if (_keyToAction.TryGetValue((key, modifiers), out var termId) &&
@@ -422,7 +467,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        // メモ入力中(TextBox にフォーカス)は文字入力を優先し、Esc=閉じる・F1=全画面切替だけ処理する。
+        // メモ入力中(TextBox にフォーカス)は文字入力を優先し、Esc=閉じる・表示切替キー=全画面切替だけ処理する。
         // それ以外のキー(C/M/D 等のファイラー操作)は奪わずメモへ委ねる。
         if (e.OriginalSource is TextBox memoBox && ReferenceEquals(memoBox, MemoBox))
         {
@@ -478,22 +523,22 @@ public partial class MainWindow : Window
         ["mark.toggleAll"] = () => Vm.Active.ToggleMarkAll(),     // 全選択 ⇔ 全選択解除
         ["mark.toggle"] = () => Vm.Active.ToggleMarkAndAdvance(),
 
-        ["pane.switchOrTerminal"] = SwitchPaneOrFocusTerminal,
+        // Tab: 相手側の領域へ切替。メモ/ターミナルが覆っていればそちらへ(裏ペインへは移らない)。
+        ["pane.switchOrTerminal"] = () => FocusPaneSide(!Vm.IsLeftActive),
         // 修飾なしの ←→: ペインの外側方向(相手ペイン側)へはペイン移動、内側方向へは親フォルダーへ。
         // 左ペイン: ←=親 / →=右へ。右ペイン: →=親 / ←=左へ。
+        // ペイン移動先がメモ/ターミナルに覆われていれば FocusPaneSide が裏ペインへ移らずそちらへ向ける。
         ["pane.left"] = () =>
         {
             if (ActiveIsGrid) { GridMoveCursor(GridDirection.Left); return; }   // グリッドは←で1つ前のタイルへ
-            if (Vm.IsLeftActive) Run(Vm.Active.GoToParent);
-            else Vm.SwitchPane();
-            FocusActiveList();
+            if (Vm.IsLeftActive) { Run(Vm.Active.GoToParent); FocusActiveList(); }
+            else FocusPaneSide(left: true);
         },
         ["pane.right"] = () =>
         {
             if (ActiveIsGrid) { GridMoveCursor(GridDirection.Right); return; }   // グリッドは→で1つ次のタイルへ
-            if (Vm.IsLeftActive) Vm.SwitchPane();
-            else Run(Vm.Active.GoToParent);
-            FocusActiveList();
+            if (Vm.IsLeftActive) FocusPaneSide(left: false);
+            else { Run(Vm.Active.GoToParent); FocusActiveList(); }
         },
         ["view.toggleFullscreen"] = () =>
         {
@@ -562,25 +607,25 @@ public partial class MainWindow : Window
     };
 
     /// <summary>
-    /// Tab: ペイン切替。メモ/ターミナル表示中は一覧→メモ/ターミナルへフォーカスを移す(タブ切替は Ctrl+←/→)。
-    /// メモは片側のペインを覆うため、Tab で裏のファイルペインへ移らずメモ入力欄へ移す
-    /// (メモから一覧へ戻すのは Ctrl+Tab / Esc)。
+    /// 指定側の領域へフォーカスを移す(Tab・←/→ のペイン切替で共用)。
+    /// メモ/ターミナルがその側を覆っている(片側表示でその側、または全画面表示)ときは、
+    /// 裏のファイルペインへ移らずオーバーレイへフォーカスする(見えていない裏ペインを操作対象にしない)。
+    /// メモから一覧へ戻すのは Ctrl+Tab / Esc。タブ切替は Ctrl+←/→。
     /// </summary>
-    private void SwitchPaneOrFocusTerminal()
+    private void FocusPaneSide(bool left)
     {
-        if (MemoVisible)
+        if (MemoVisible && (_memoView == MemoView.FullScreen || _memoOnLeft == left))
         {
             MemoBox.Focus();
+            return;
         }
-        else if (TerminalVisible)
+        if (TerminalVisible && (_terminalView == TerminalView.FullScreen || _terminalOnLeft == left))
         {
-            _terminalPanel!.FocusActiveTerminal();
+            FocusTerminalPanel();
+            return;
         }
-        else
-        {
-            Vm.SwitchPane();
-            FocusActiveList();
-        }
+        SetActivePaneFlags(left);
+        FocusActiveList();
     }
 
     /// <summary>Z: 設定ダイアログ(キー割り当て・外部ツール)を開き、OK なら保存して即時反映する。</summary>
@@ -648,9 +693,9 @@ public partial class MainWindow : Window
         if (kind == Filer.Core.PreviewKind.None) return;
         Run(() =>
         {
-            // ペイン領域表示(F1)は反対側ペインへ重ねる(自身の一覧を見ながらプレビューするため)
+            // ペイン領域表示は反対側ペインへ重ねる(自身の一覧を見ながらプレビューするため)
             var paneRegion = Vm.IsLeftActive ? RightPane : LeftPane;
-            var window = new PreviewWindow(Vm, paneRegion) { Owner = this };
+            var window = new PreviewWindow(Vm, paneRegion, KeyMap()) { Owner = this };
             window.ShowDialog();
         });
         FocusActiveList();   // プレビュー内でカーソル移動した場合も選択行へ復帰
@@ -670,9 +715,9 @@ public partial class MainWindow : Window
         }
         Run(() =>
         {
-            // ペイン領域表示(F1)は反対側ペインへ重ねる(自分の一覧を見ながら差分を見るため)。
+            // ペイン領域表示は反対側ペインへ重ねる(自分の一覧を見ながら差分を見るため)。
             var paneRegion = Vm.IsLeftActive ? RightPane : LeftPane;
-            var window = new DiffWindow(targets.LeftPath, targets.RightPath, paneRegion) { Owner = this };
+            var window = new DiffWindow(targets.LeftPath, targets.RightPath, paneRegion, KeyMap()) { Owner = this };
             window.ShowDialog();
         });
         FocusActiveList();
@@ -937,6 +982,13 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>現在の設定キー割り当て(未構築なら構築する)。プレビュー/差分/ターミナルへ渡す。</summary>
+    private KeyBindingMap KeyMap()
+    {
+        if (_keyMap is null) RebuildKeyBindings();
+        return _keyMap!;
+    }
+
     /// <summary>アクションに割り当てられたジェスチャを表示用文字列にする(複数は空白区切り。無ければ空)。</summary>
     private string GestureDisplay(string actionId)
     {
@@ -959,7 +1011,7 @@ public partial class MainWindow : Window
         }
     }
 
-    // ---- 組み込みターミナル(T / Shift+T / F1)。ペイン領域にオーバーレイ表示する ----
+    // ---- 組み込みターミナル(T / Shift+T / 表示切替キー)。ペイン領域にオーバーレイ表示する ----
 
     /// <summary>ターミナルの表示形態。</summary>
     private enum TerminalView { OnePane, FullScreen }
@@ -1006,7 +1058,7 @@ public partial class MainWindow : Window
         if (TerminalOpen)
         {
             if (!TerminalVisible) ApplyTerminalView();   // F4 でたたまれていたら再表示(セッションは生存)
-            _terminalPanel!.FocusActiveTerminal();
+            FocusTerminalPanel();
             return;
         }
         var profile = DefaultTerminalProfile(TerminalProfiles.Detect());
@@ -1044,9 +1096,11 @@ public partial class MainWindow : Window
         }
         _terminalPanel!.OpenNewTab(profile, TerminalCwd());
         ApplyTerminalView();                              // タブが増えたので表示を反映
+        _terminalFocused = true;                          // 新タブは ready 後に端末へフォーカスする
+        UpdateKeyHelp();
     }
 
-    /// <summary>F1: ターミナル表示を 1画面 ⇄ 全画面 でトグルする。</summary>
+    /// <summary>表示切替キー: ターミナル表示を 1画面 ⇄ 全画面 でトグルする。</summary>
     private void CycleTerminalView()
     {
         if (!TerminalOpen) return;   // ターミナル未オープン時は無視
@@ -1054,7 +1108,7 @@ public partial class MainWindow : Window
             ? TerminalView.OnePane
             : TerminalView.FullScreen;
         ApplyTerminalView();
-        _terminalPanel!.FocusActiveTerminal();
+        FocusTerminalPanel();
     }
 
     /// <summary>F4: ターミナル表示をたたむ(セッションは終了せず保持。T で再表示できる)。一覧へフォーカスを戻す。</summary>
@@ -1070,7 +1124,7 @@ public partial class MainWindow : Window
     {
         if (_terminalPanel is not null) return;
         _terminalPanel = new TerminalPanel(TerminalCwd,
-            () => DefaultTerminalProfile(TerminalProfiles.Detect()));
+            () => DefaultTerminalProfile(TerminalProfiles.Detect()), KeyMap());
         _terminalPanel.AllTabsClosed += OnTerminalAllClosed;
         _terminalPanel.FocusListRequested += FocusActiveList;
         _terminalPanel.CycleViewRequested += CycleTerminalView;
@@ -1104,7 +1158,7 @@ public partial class MainWindow : Window
         FocusActiveList();
     }
 
-    // ---- メモ(U)。反対ペイン領域にオーバーレイ表示する。F1 で1画面⇄全画面、Esc で閉じる ----
+    // ---- メモ(U)。反対ペイン領域にオーバーレイ表示する。表示切替キーで1画面⇄全画面、Esc で閉じる ----
 
     /// <summary>メモの表示形態。</summary>
     private enum MemoView { OnePane, FullScreen }
@@ -1155,7 +1209,7 @@ public partial class MainWindow : Window
         FocusActiveList();
     }
 
-    /// <summary>F1: メモ表示を 1画面 ⇄ 全画面 でトグルする。</summary>
+    /// <summary>表示切替キー: メモ表示を 1画面 ⇄ 全画面 でトグルする。</summary>
     private void CycleMemoView()
     {
         if (!MemoVisible) return;
@@ -1214,14 +1268,14 @@ public partial class MainWindow : Window
         _memoStore.Save(MemoBox.Text);
     }
 
-    // ---- ファイルペインの表示2状態(F1)。通常(50/50) ⇄ アクティブ側を全画面 をトグルする ----
+    // ---- ファイルペインの表示2状態(表示切替キー)。通常(50/50) ⇄ アクティブ側を全画面 をトグルする ----
 
     /// <summary>0=通常 / 1=アンカー側を全画面。</summary>
     private int _paneStep;
     /// <summary>全画面化の基準とするアクティブ側。</summary>
     private bool _paneAnchorLeft;
 
-    /// <summary>F1(ターミナル未使用時): ファイルペインを 通常 ⇄ 全画面 でトグルする。</summary>
+    /// <summary>表示切替キー(ターミナル未使用時): ファイルペインを 通常 ⇄ 全画面 でトグルする。</summary>
     private void CyclePaneLayout()
     {
         if (_paneStep == 0) { _paneAnchorLeft = Vm.IsLeftActive; _paneStep = 1; }
@@ -1451,8 +1505,18 @@ public partial class MainWindow : Window
     /// カーソルが動かないため、必ず選択行のコンテナにフォーカスを当てる。
     /// バインディング/レイアウト確定後に行うため Dispatcher で遅延実行する。
     /// </summary>
+    /// <summary>ターミナルへフォーカスを移す。フォーカス状態フラグを立ててフッターを端末用へ切り替える。</summary>
+    private void FocusTerminalPanel()
+    {
+        _terminalPanel!.FocusActiveTerminal();
+        _terminalFocused = true;
+        UpdateKeyHelp();
+    }
+
     private void FocusActiveList()
     {
+        _terminalFocused = false;   // 一覧へ戻る=ターミナルからフォーカスが外れる
+        UpdateKeyHelp();
         UpdateSortIndicators();
         var list = ActiveList;
         Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(() => FocusSelectedItem(list)));

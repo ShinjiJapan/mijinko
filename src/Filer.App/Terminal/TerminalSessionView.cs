@@ -29,10 +29,10 @@ public sealed class TerminalSessionView : Border
     /// <summary>シェルプロセスが終了した(タブを閉じてよい)。UI スレッドで発火する。</summary>
     public event Action<TerminalSessionView>? SessionExited;
 
-    /// <summary>ターミナル内で Ctrl+T が押された(ファイラーの一覧へフォーカスを戻す)。</summary>
+    /// <summary>ターミナル内でフォーカス戻しキー(設定値)が押された(ファイラーの一覧へフォーカスを戻す)。</summary>
     public event Action? FocusListRequested;
 
-    /// <summary>ターミナル内で F1 が押された(表示形態を切り替える)。</summary>
+    /// <summary>ターミナル内で表示切替キー(設定値)が押された(表示形態を切り替える)。</summary>
     public event Action? CycleViewRequested;
 
     public TerminalSessionView(TerminalProfile profile, string workingDirectory)

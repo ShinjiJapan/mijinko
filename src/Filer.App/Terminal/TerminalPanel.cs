@@ -25,6 +25,8 @@ public sealed class TerminalPanel : DockPanel
 
     private readonly Func<string> _cwdProvider;
     private readonly Func<TerminalProfile?> _defaultProfileProvider;
+    // 設定キー割り当て。terminal.html の JS 判定(表示切替・一覧へフォーカス戻し)へ埋め込む。
+    private readonly KeyBindingMap _keyMap;
     private readonly StackPanel _tabStrip = new() { Orientation = Orientation.Horizontal };
     private readonly Grid _sessionHost = new();
     private readonly List<TerminalSessionView> _views = new();
@@ -35,10 +37,10 @@ public sealed class TerminalPanel : DockPanel
     /// <summary>最後のタブが閉じられた(パネルを畳んでよい)。</summary>
     public event Action? AllTabsClosed;
 
-    /// <summary>ターミナル内 Ctrl+T によるファイラー一覧へのフォーカス戻し要求。</summary>
+    /// <summary>ターミナル内のフォーカス戻しキー(設定値)によるファイラー一覧へのフォーカス戻し要求。</summary>
     public event Action? FocusListRequested;
 
-    /// <summary>ターミナル内 F1 による表示形態の切替要求。</summary>
+    /// <summary>ターミナル内の表示切替キーによる表示形態の切替要求。</summary>
     public event Action? CycleViewRequested;
 
     /// <summary>新しいタブを開いた(その種別を既定として記憶するため通知)。</summary>
@@ -46,10 +48,12 @@ public sealed class TerminalPanel : DockPanel
 
     public int TabCount => _views.Count;
 
-    public TerminalPanel(Func<string> cwdProvider, Func<TerminalProfile?> defaultProfileProvider)
+    public TerminalPanel(Func<string> cwdProvider, Func<TerminalProfile?> defaultProfileProvider,
+        KeyBindingMap keyMap)
     {
         _cwdProvider = cwdProvider;
         _defaultProfileProvider = defaultProfileProvider;
+        _keyMap = keyMap;
         Background = TabActiveBg;
 
         var addButton = MakeIconButton("+", "新しいターミナル (T)", 15);
@@ -102,7 +106,8 @@ public sealed class TerminalPanel : DockPanel
 
         try
         {
-            await view.InitializeAsync(await GetEnvironmentAsync(), TerminalAssets.EnsureExtracted());
+            await view.InitializeAsync(await GetEnvironmentAsync(), TerminalAssets.EnsureExtracted(
+                _keyMap.GesturesFor("view.toggleFullscreen"), _keyMap.GesturesFor("terminal.focusBack")));
         }
         catch (Exception ex)
         {

@@ -84,6 +84,14 @@ public sealed class MarkdownRendererTests
     }
 
     [Fact]
+    public void ToHtmlDocument_EmbedsConfiguredFullscreenKey_NotHardcodedF1()
+    {
+        var html = MarkdownRenderer.ToHtmlDocument("# x", ThemeColors.Dark, new[] { "F2" });
+        Assert.Contains("e.key === 'F2'", html);
+        Assert.DoesNotContain("e.key === 'F1'", html);
+    }
+
+    [Fact]
     public void ToHtmlDocument_EscapesRawHtmlInText()
     {
         // 本文中の生 HTML/スクリプトはそのまま実行されないことの最低限の確認

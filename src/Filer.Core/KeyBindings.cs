@@ -256,6 +256,39 @@ public static class KeyHelp
     public static string BuildShift(KeyBindingMap map) =>
         Build(map, chord => chord.Shift && !chord.Ctrl);
 
+    /// <summary>
+    /// 状態別フッター(メモ編集中・ターミナルフォーカス中など、キー操作が変わる画面)の1項目。
+    /// <see cref="FixedGesture"/> を指定するとそのキーをそのまま表示し、null なら
+    /// <see cref="ActionId"/> のジェスチャを設定マップから引く(設定変更に追従)。
+    /// </summary>
+    public readonly record struct ContextHelpEntry(string? ActionId, string? FixedGesture, string Label);
+
+    /// <summary>状態別フッター文字列を生成する。各項目を "キー:ラベル" 形式で連結。
+    /// ジェスチャを解決できない項目(割り当てなし等)は省く。</summary>
+    public static string BuildContext(KeyBindingMap map, IReadOnlyList<ContextHelpEntry> entries)
+    {
+        var parts = new List<string>();
+        foreach (var entry in entries)
+        {
+            var gesture = entry.FixedGesture is { } fixedGesture
+                ? (KeyChord.TryParse(fixedGesture, out var fixedChord) ? fixedChord.DisplayText : fixedGesture)
+                : ResolveFirstGesture(map, entry.ActionId);
+            if (!string.IsNullOrEmpty(gesture))
+                parts.Add($"{gesture}:{entry.Label}");
+        }
+        return string.Join("  ", parts);
+    }
+
+    /// <summary>アクションに割り当てられた最初のジェスチャの表示文字列(なければ null)。</summary>
+    private static string? ResolveFirstGesture(KeyBindingMap map, string? actionId)
+    {
+        if (actionId is null) return null;
+        foreach (var gesture in map.GesturesFor(actionId))
+            if (KeyChord.TryParse(gesture, out var chord))
+                return chord.DisplayText;
+        return null;
+    }
+
     private static string Build(KeyBindingMap map, Func<KeyChord, bool> match)
     {
         var parts = new List<string>();

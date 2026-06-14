@@ -35,11 +35,21 @@ public static class MarkdownRenderer
         return writer.ToString();
     }
 
+    /// <summary>既定の表示切替ジェスチャ(設定で上書きしないときの値)。</summary>
+    private static readonly string[] DefaultToggleGestures = { "F1" };
+
     /// <summary>Markdown を、既定(ダーク)テーマ CSS と mermaid 初期化を含む完全な HTML 文書へ変換する。</summary>
     public static string ToHtmlDocument(string markdown) => ToHtmlDocument(markdown, ThemeColors.Dark);
 
     /// <summary>Markdown を、指定テーマの CSS と mermaid 初期化を含む完全な HTML 文書へ変換する。</summary>
-    public static string ToHtmlDocument(string markdown, ThemeColors colors)
+    public static string ToHtmlDocument(string markdown, ThemeColors colors) =>
+        ToHtmlDocument(markdown, colors, DefaultToggleGestures);
+
+    /// <summary>
+    /// Markdown を、指定テーマの CSS と mermaid 初期化を含む完全な HTML 文書へ変換する。
+    /// <paramref name="fullscreenGestures"/> は表示切替(全画面⇄ペイン領域)を発火させるキー(設定値)。
+    /// </summary>
+    public static string ToHtmlDocument(string markdown, ThemeColors colors, IReadOnlyList<string> fullscreenGestures)
     {
         var body = RenderBodyHtml(markdown);
         var sb = new StringBuilder();
@@ -50,7 +60,7 @@ public static class MarkdownRenderer
         sb.Append(body);
         sb.Append("\n</article>\n");
         sb.Append("<script src=\"mermaid.min.js\"></script>\n");
-        sb.Append("<script>\n").Append(BuildScript(colors)).Append("\n</script>\n");
+        sb.Append("<script>\n").Append(BuildScript(colors, fullscreenGestures)).Append("\n</script>\n");
         sb.Append("</body>\n</html>\n");
         return sb.ToString();
     }
@@ -171,10 +181,30 @@ ul, ol {{ padding-left: 1.6em; }}
 
     // mermaid を明示描画し、図ごとにズーム/全画面ボタンを配線する。
     // Esc/Enter はホスト(WPF)へ通知して閉じる(全画面中は全画面解除を優先)。
-    private static string BuildScript(ThemeColors c) => $@"
-mermaid.initialize({{ startOnLoad: false, theme: '{(c.IsDark ? "dark" : "default")}', securityLevel: 'loose' }});" + ScriptBody;
+    private static string BuildScript(ThemeColors c, IReadOnlyList<string> gestures) => $@"
+mermaid.initialize({{ startOnLoad: false, theme: '{(c.IsDark ? "dark" : "default")}', securityLevel: 'loose' }});"
+        + MermaidZoomScript + KeydownScript(KeyChordJs.MatchExpression(gestures, "e"));
 
-    private const string ScriptBody = @"
+    // 表示切替キー(設定値)で cycle-view、S でソース切替、Esc/Enter で閉じる をホストへ通知する。
+    private static string KeydownScript(string toggleExpr) => $@"
+document.addEventListener('keydown', function (e) {{
+  if ({toggleExpr}) {{   // 表示形態の切替(全画面 ⇄ ペイン領域)をホストへ通知
+    e.preventDefault();
+    if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage('cycle-view');
+    return;
+  }}
+  if (e.key === 's' || e.key === 'S') {{   // S: レンダリング ⇄ ソース表示をホストへ通知
+    e.preventDefault();
+    if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage('toggle-source');
+    return;
+  }}
+  if (e.key !== 'Escape' && e.key !== 'Enter') return;
+  if (document.fullscreenElement) return;   // 全画面中の Esc は解除を優先
+  if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage('close');
+}});
+";
+
+    private const string MermaidZoomScript = @"
 mermaid.run({ querySelector: '.mermaid' }).then(function () {
   document.querySelectorAll('.mermaid-fig').forEach(function (fig) {
     var svg = fig.querySelector('svg');
@@ -212,21 +242,6 @@ mermaid.run({ querySelector: '.mermaid' }).then(function () {
       else fig.requestFullscreen();
     });
   });
-});
-document.addEventListener('keydown', function (e) {
-  if (e.key === 'F1') {   // F1: ホストへ表示形態の切替を通知(全画面 ⇄ ペイン領域)
-    e.preventDefault();
-    if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage('cycle-view');
-    return;
-  }
-  if (e.key === 's' || e.key === 'S') {   // S: レンダリング ⇄ ソース表示をホストへ通知
-    e.preventDefault();
-    if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage('toggle-source');
-    return;
-  }
-  if (e.key !== 'Escape' && e.key !== 'Enter') return;
-  if (document.fullscreenElement) return;   // 全画面中の Esc は解除を優先
-  if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage('close');
 });
 ";
 }
