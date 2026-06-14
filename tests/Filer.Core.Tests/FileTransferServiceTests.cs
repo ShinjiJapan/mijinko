@@ -67,6 +67,25 @@ public sealed class FileTransferServiceTests : IDisposable
     }
 
     [Fact]
+    public void Execute_CopyFile_PreservesSourceTimestamps()
+    {
+        var src = MakeFile("a.txt", "hello");
+        var dest = MakeDir("dest");
+        // コピー元を過去日時にしておき、コピー後も同じ日時(現在日時ではない)であることを確認する。
+        var created = new DateTime(2020, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+        var modified = new DateTime(2021, 6, 7, 8, 9, 10, DateTimeKind.Utc);
+        File.SetCreationTimeUtc(src, created);
+        File.SetLastWriteTimeUtc(src, modified);
+
+        var plan = FileTransferService.BuildPlan(new[] { src }, dest, FileTransferKind.Copy);
+        Run(plan, FileTransferKind.Copy);
+
+        var copied = Path.Combine(dest, "a.txt");
+        Assert.Equal(created, File.GetCreationTimeUtc(copied));
+        Assert.Equal(modified, File.GetLastWriteTimeUtc(copied));
+    }
+
+    [Fact]
     public void Execute_CopyDirectory_RecreatesTreeIncludingEmptyDir()
     {
         MakeFile("srcdir/inner.txt", "deep");

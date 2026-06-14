@@ -536,6 +536,28 @@
                  WebView2 を再ペアレントせず列スパンだけ変えるため、表示切替で再初期化されない。 -->
             <Border x:Name="TerminalHost" Grid.Column="2" Margin="2" Background="{DynamicResource App.Background}"
                     Visibility="Collapsed" Panel.ZIndex="5"/>
+
+            <!-- メモ(U)のオーバーレイ。反対ペイン領域に重ね、F1 で1画面⇄全画面、Esc で閉じる。
+                 入力はリアルタイムに保存され、次回 U を押すと復元される。
+                 メインウィンドウは IME 無効だが、メモは日本語入力できるよう個別に有効化する。 -->
+            <Border x:Name="MemoHost" Grid.Column="2" Margin="2"
+                    Background="{DynamicResource Surface.Background}"
+                    BorderBrush="{DynamicResource Border.Default}" BorderThickness="1"
+                    Visibility="Collapsed" Panel.ZIndex="6">
+                <DockPanel>
+                    <Border DockPanel.Dock="Top" Background="{DynamicResource PanelAlt.Background}" Padding="6,3">
+                        <TextBlock x:Name="MemoHeaderText" Text="メモ" Foreground="{DynamicResource Fg.Secondary}"
+                                   FontSize="12" VerticalAlignment="Center"/>
+                    </Border>
+                    <TextBox x:Name="MemoBox" AcceptsReturn="True" AcceptsTab="True"
+                             TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                             Background="{DynamicResource Surface.Background}" Foreground="{DynamicResource Fg.Primary}"
+                             CaretBrush="{DynamicResource Fg.Primary}" BorderThickness="0" Padding="8"
+                             FontFamily="Consolas, MS Gothic" FontSize="13"
+                             InputMethod.IsInputMethodEnabled="True"
+                             TextChanged="MemoBox_TextChanged"/>
+                </DockPanel>
+            </Border>
         </Grid>
 
         <!-- ステータス/ヘルプバー -->

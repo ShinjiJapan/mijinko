@@ -164,6 +164,9 @@ public static class FileTransferService
                 TryDelete(item.Dest);   // 中断・失敗で半端なファイルを残さない
                 throw;
             }
+            // だいなファイラー等と同様、コピー後のファイル日時はコピー元を引き継ぐ(現在日時にしない)。
+            File.SetCreationTimeUtc(item.Dest, File.GetCreationTimeUtc(item.Src));
+            File.SetLastWriteTimeUtc(item.Dest, File.GetLastWriteTimeUtc(item.Src));
         }
 
         Report("", force: true);

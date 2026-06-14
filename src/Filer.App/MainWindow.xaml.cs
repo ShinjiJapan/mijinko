@@ -422,6 +422,24 @@ public partial class MainWindow : Window
             return;
         }
 
+        // メモ入力中(TextBox にフォーカス)は文字入力を優先し、Esc=閉じる・F1=全画面切替だけ処理する。
+        // それ以外のキー(C/M/D 等のファイラー操作)は奪わずメモへ委ねる。
+        if (e.OriginalSource is TextBox memoBox && ReferenceEquals(memoBox, MemoBox))
+        {
+            if (key == Key.Escape)
+            {
+                CloseMemo();
+                e.Handled = true;
+            }
+            else if (_keyToAction.TryGetValue((key, modifiers), out var memoId) &&
+                     memoId == "view.toggleFullscreen")
+            {
+                CycleMemoView();
+                e.Handled = true;
+            }
+            return;
+        }
+
         Action? action = null;
         var resolved = _keyToAction.TryGetValue((key, modifiers), out var actionId) &&
             _actions.TryGetValue(actionId, out action);
@@ -479,8 +497,9 @@ public partial class MainWindow : Window
         },
         ["view.toggleFullscreen"] = () =>
         {
-            // 表示の通常⇄全画面トグル。ターミナルが表示中なら端末を、なければファイルペインを対象。
-            if (TerminalVisible) CycleTerminalView();
+            // 表示の通常⇄全画面トグル。メモ→ターミナル→ファイルペインの順に対象を選ぶ。
+            if (MemoVisible) CycleMemoView();
+            else if (TerminalVisible) CycleTerminalView();
             else CyclePaneLayout();
         },
         ["view.toggleGrid"] = ToggleGridView,             // 詳細 ⇔ サムネイルグリッド表示
@@ -532,6 +551,7 @@ public partial class MainWindow : Window
         ["favorite.select"] = ShowFavoriteSelector,
         ["history.select"] = ShowHistorySelector,        // 開いたフォルダーの履歴から移動
 
+        ["memo.toggle"] = ToggleMemo,                    // メモ(反対ペイン)の表示/非表示
         ["terminal.open"] = OpenOrFocusTerminal,         // ターミナルを開く/フォーカス
         ["terminal.pick"] = OpenTerminalWithPicker,      // 種類を選んでターミナル
         ["terminal.focusBack"] = FocusActiveList,        // ターミナル中: 一覧へフォーカスを戻す
@@ -541,10 +561,18 @@ public partial class MainWindow : Window
         ["palette.show"] = ShowCommandPalette,            // すべてのコマンドを検索して実行
     };
 
-    /// <summary>Tab: ペイン切替。ターミナル表示中は一覧→ターミナルへフォーカスを移す(タブ切替は Ctrl+←/→)。</summary>
+    /// <summary>
+    /// Tab: ペイン切替。メモ/ターミナル表示中は一覧→メモ/ターミナルへフォーカスを移す(タブ切替は Ctrl+←/→)。
+    /// メモは片側のペインを覆うため、Tab で裏のファイルペインへ移らずメモ入力欄へ移す
+    /// (メモから一覧へ戻すのは Ctrl+Tab / Esc)。
+    /// </summary>
     private void SwitchPaneOrFocusTerminal()
     {
-        if (TerminalVisible)
+        if (MemoVisible)
+        {
+            MemoBox.Focus();
+        }
+        else if (TerminalVisible)
         {
             _terminalPanel!.FocusActiveTerminal();
         }
@@ -1076,6 +1104,116 @@ public partial class MainWindow : Window
         FocusActiveList();
     }
 
+    // ---- メモ(U)。反対ペイン領域にオーバーレイ表示する。F1 で1画面⇄全画面、Esc で閉じる ----
+
+    /// <summary>メモの表示形態。</summary>
+    private enum MemoView { OnePane, FullScreen }
+
+    /// <summary>メモ本文の永続化。入力は随時保存し、次回起動時に復元する。</summary>
+    private readonly MemoStore _memoStore = new(Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "Filer", "memo.txt"));
+
+    private MemoView _memoView = MemoView.OnePane;
+    /// <summary>1画面表示時にどちら側の列を占有するか(開いたとき非アクティブ側へ決定)。</summary>
+    private bool _memoOnLeft;
+    /// <summary>保存済みメモを TextBox へ読み込み済みか(初回オープン時のみ復元する)。</summary>
+    private bool _memoLoaded;
+    /// <summary>入力のたびに即書き込まず、少し待ってまとめて保存するためのデバウンスタイマー。</summary>
+    private DispatcherTimer? _memoSaveTimer;
+
+    /// <summary>メモが画面に表示されているか。</summary>
+    private bool MemoVisible => MemoHost.Visibility == Visibility.Visible;
+
+    /// <summary>U: メモの表示/非表示をトグルする。表示時は反対ペイン領域へ出してフォーカスする。</summary>
+    private void ToggleMemo()
+    {
+        if (MemoVisible) { CloseMemo(); return; }
+
+        ResetPaneLayout();                 // ペイン全画面中だと列幅0でオーバーレイが潰れるため通常へ戻す
+        if (TerminalVisible) CollapseTerminal();   // 同じ領域のオーバーレイ重なりを避ける(セッションは保持)
+        if (!_memoLoaded)
+        {
+            MemoBox.Text = _memoStore.Load();
+            _memoLoaded = true;            // 初回ロード分の TextChanged を保存対象から外すため Text 設定後に立てる
+        }
+        _memoOnLeft = !Vm.IsLeftActive;    // 非アクティブ側に置く
+        _memoView = MemoView.OnePane;
+        UpdateMemoHeader();                // 全画面切替キーは設定で変わるので実際の割当を表示
+        ApplyMemoView();
+        MemoBox.Focus();
+        MemoBox.CaretIndex = MemoBox.Text.Length;
+    }
+
+    /// <summary>Esc / 再度の U: メモを閉じる(内容を保存し、一覧へフォーカスを戻す)。</summary>
+    private void CloseMemo()
+    {
+        if (!MemoVisible) return;
+        FlushMemo();
+        MemoHost.Visibility = Visibility.Collapsed;
+        _memoView = MemoView.OnePane;
+        FocusActiveList();
+    }
+
+    /// <summary>F1: メモ表示を 1画面 ⇄ 全画面 でトグルする。</summary>
+    private void CycleMemoView()
+    {
+        if (!MemoVisible) return;
+        _memoView = _memoView == MemoView.FullScreen ? MemoView.OnePane : MemoView.FullScreen;
+        ApplyMemoView();
+        MemoBox.Focus();
+    }
+
+    /// <summary>ヘッダーに閉じる(Esc)と全画面切替の実際の割り当てキーを表示する。</summary>
+    private void UpdateMemoHeader()
+    {
+        var full = GestureDisplay("view.toggleFullscreen");
+        MemoHeaderText.Text = string.IsNullOrEmpty(full)
+            ? "メモ  (Esc:閉じる)"
+            : $"メモ  (Esc:閉じる  {full}:全画面)";
+    }
+
+    /// <summary>現在の表示形態をオーバーレイの列スパン・可視性へ反映する。</summary>
+    private void ApplyMemoView()
+    {
+        switch (_memoView)
+        {
+            case MemoView.OnePane:
+                Grid.SetColumn(MemoHost, _memoOnLeft ? 0 : 2);
+                Grid.SetColumnSpan(MemoHost, 1);
+                break;
+            case MemoView.FullScreen:
+                Grid.SetColumn(MemoHost, 0);
+                Grid.SetColumnSpan(MemoHost, 3);   // 両ペイン＋スプリッターを覆う
+                break;
+        }
+        MemoHost.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>入力のたびに保存をデバウンス予約する(初回ロード中の変更は無視)。</summary>
+    private void MemoBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (!_memoLoaded) return;
+        _memoSaveTimer ??= CreateMemoSaveTimer();
+        _memoSaveTimer.Stop();
+        _memoSaveTimer.Start();
+    }
+
+    private DispatcherTimer CreateMemoSaveTimer()
+    {
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+        timer.Tick += (_, _) => FlushMemo();
+        return timer;
+    }
+
+    /// <summary>保留中の編集をメモファイルへ書き出す(閉じる・全画面切替・終了時にも呼ぶ)。</summary>
+    private void FlushMemo()
+    {
+        if (!_memoLoaded) return;          // 一度も開いていなければ書かない
+        _memoSaveTimer?.Stop();
+        _memoStore.Save(MemoBox.Text);
+    }
+
     // ---- ファイルペインの表示2状態(F1)。通常(50/50) ⇄ アクティブ側を全画面 をトグルする ----
 
     /// <summary>0=通常 / 1=アンカー側を全画面。</summary>
@@ -1122,6 +1260,7 @@ public partial class MainWindow : Window
     /// <summary>終了時に全ターミナルのシェルを終了する。</summary>
     protected override void OnClosed(EventArgs e)
     {
+        FlushMemo();                       // 未保存のメモを書き出す
         _terminalPanel?.CloseAll();
         _searchProxy?.Dispose();   // パイプ閉鎖 → 常駐ヘルパーが自己終了する
         base.OnClosed(e);

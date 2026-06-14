@@ -37,6 +37,7 @@ public static class KeyBindingActions
         new("favorite.add", "お気に入りに登録", "移動", new[] { "A" }, "お気に入り"),
         new("favorite.select", "お気に入りへ移動", "移動", new[] { "D1", "NumPad1" }, "お気に入り選択"),
         new("history.select", "フォルダー履歴から移動", "移動", new[] { "H" }, "履歴"),
+        new("memo.toggle", "メモ表示の切替(反対ペイン)", "ツール", new[] { "U" }, "メモ"),
         new("terminal.open", "ターミナルを開く/フォーカス", "ツール", new[] { "T" }, "ターミナル"),
         // ターミナルにフォーカスがある間だけ働く専用キー(それ以外のキーは全て端末へ送る)。
         // 既定は空きキー(F5 は更新に割当済み)。フッターには出さない。
