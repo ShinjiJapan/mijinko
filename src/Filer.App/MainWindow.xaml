@@ -59,15 +59,14 @@
 
         <!-- 名前セル: Git 状態バッジ(M/A/?/!)+名前。バッジ枠は固定幅で確保し、状態なしは
              透明背景+空文字で見えない(名前の開始位置は全行で揃う)。バッジ色はテーマ非依存の固定色。
-             名前 TextBlock の文字色は ListViewItem からの継承(ディレクトリ色・マーク色)に従う。 -->
+             名前 TextBlock の文字色は ListViewItem からの継承(ディレクトリ色・マーク色)に従う。
+             列分割に Grid の ColumnDefinition は使わない。ColumnDefinition は Visual ツリー外のため
+             仮想化(再利用)時に RelativeSource バインドが既定の 1* へフォールバックし、名前が中央寄せに
+             なる不具合があった。全要素が実 Visual の DockPanel で組み、バッジは Collapsed 時に 0 幅へ畳む。 -->
         <DataTemplate x:Key="NameCellTemplate">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="{Binding DataContext.GitBadgeColumnWidth, RelativeSource={RelativeSource AncestorType=ListView}}"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <Border Grid.Column="0" Background="{Binding GitBadgeBrush}" CornerRadius="3"
-                        Width="15" Height="15" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <DockPanel LastChildFill="True">
+                <Border DockPanel.Dock="Left" Background="{Binding GitBadgeBrush}" CornerRadius="3"
+                        Width="15" Height="15" Margin="2,0" VerticalAlignment="Center">
                     <Border.Style>
                         <Style TargetType="Border">
                             <Style.Triggers>
@@ -81,10 +80,9 @@
                                FontFamily="Segoe UI" FontSize="10" FontWeight="Bold"
                                HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Border>
-                <TextBlock Grid.Column="1" Text="{Binding DisplayName}" VerticalAlignment="Center"
-                           Margin="{Binding DataContext.GitNameMargin, RelativeSource={RelativeSource AncestorType=ListView}}"
+                <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center"
                            TextTrimming="CharacterEllipsis"/>
-            </Grid>
+            </DockPanel>
         </DataTemplate>
 
         <!-- パンくず右端の Git ブランチ表示(例 "main ↑1")。リポジトリ外(空文字)は場所ごと畳む -->
@@ -258,7 +256,7 @@
                        Width="{Binding DataContext.GridImageSize, RelativeSource={RelativeSource AncestorType=ListView}}"
                        Height="{Binding DataContext.GridImageSize, RelativeSource={RelativeSource AncestorType=ListView}}"
                        HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,4,0,2"
-                       RenderOptions.BitmapScalingMode="HighQuality" SnapsToDevicePixels="True"/>
+                       RenderOptions.BitmapScalingMode="LowQuality" SnapsToDevicePixels="True"/>
                 <!-- 全タイルを同寸にするため名前欄は固定高さ(仮想化パネルが1個の寸法を全体に適用) -->
                 <TextBlock Text="{Binding Name}" TextAlignment="Center" TextWrapping="Wrap"
                            TextTrimming="CharacterEllipsis" Height="32" FontSize="11"/>
@@ -571,6 +569,7 @@
                              CaretBrush="{DynamicResource Fg.Primary}" BorderThickness="0" Padding="8"
                              FontFamily="Consolas, MS Gothic" FontSize="13"
                              InputMethod.IsInputMethodEnabled="True"
+                             local:Ime.AllowInput="True"
                              TextChanged="MemoBox_TextChanged"/>
                 </DockPanel>
             </Border>

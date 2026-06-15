@@ -36,7 +36,8 @@ public static class ShellThumbnailProvider
     // キャッシュ上限(超えたら丸ごと破棄してメモリを抑える。性能最適化なので素朴で十分)。
     private const int CacheCap = 2000;
 
-    private readonly record struct Request(string Path, bool IsDirectory, int Size, Action<ImageSource> OnLoaded);
+    private readonly record struct Request(
+        string Path, bool IsDirectory, int Size, Action<ImageSource> OnLoaded, Action OnDropped);
 
     private static string Key(string path, int size) => $"{path}|{size}";
 
@@ -56,16 +57,20 @@ public static class ShellThumbnailProvider
     /// サムネイルを非同期に生成し、完了したら UI スレッドで <paramref name="onLoaded"/> を呼ぶ。
     /// 生成できない(仮想パス・実在しない・非対応)場合は呼ばない(呼び出し側のアイコン表示のまま)。
     /// </summary>
-    public static void LoadAsync(string path, bool isDirectory, int size, Action<ImageSource> onLoaded)
+    public static void LoadAsync(
+        string path, bool isDirectory, int size, Action<ImageSource> onLoaded, Action onDropped)
     {
-        // 実ファイル/実フォルダーのみ対象(書庫内の仮想パス等はシェルが解決できない)。
-        if (!File.Exists(path) && !Directory.Exists(path)) return;
-
         var dispatcher = Application.Current?.Dispatcher;
         if (dispatcher is null) return;
 
         // 後着優先で積み(古い画面外要求は容量上限で捨てる)、空きワーカーがあれば起動する。
-        lock (Sync) Pending.Push(Key(path, size), new Request(path, isDirectory, size, onLoaded), out _);
+        // 実在チェック(disk I/O)はワーカー側で行い、UI スレッドを止めない。
+        bool dropped;
+        Request droppedReq;
+        lock (Sync)
+            dropped = Pending.Push(Key(path, size), new Request(path, isDirectory, size, onLoaded, onDropped), out droppedReq);
+        // 容量超過で捨てた要求は呼び出し側へ通知し、再表示時に再要求できるようにする(UI スレッド)。
+        if (dropped) droppedReq.OnDropped();
         EnsureWorker(dispatcher);
     }
 
@@ -90,6 +95,9 @@ public static class ShellThumbnailProvider
             {
                 Request req;
                 lock (Sync) { if (!Pending.TryPop(out req)) break; }
+
+                // 実ファイル/実フォルダーのみ対象(書庫内の仮想パス等はシェルが解決できない)。背景で判定。
+                if (!File.Exists(req.Path) && !Directory.Exists(req.Path)) continue;
 
                 var key = Key(req.Path, req.Size);
                 if (!Cache.TryGetValue(key, out var image))

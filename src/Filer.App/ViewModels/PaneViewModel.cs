@@ -96,12 +96,6 @@ public sealed partial class PaneViewModel : ObservableObject
     /// <summary>グリッドのタイルサイズを 通常 ⇔ 拡大 で切り替える。</summary>
     public void ToggleGridSize() => GridSize = GridTileMetrics.Next(GridSize);
 
-    /// <summary>Git 管理下だけバッジ列の固定幅を確保する。</summary>
-    public GridLength GitBadgeColumnWidth => HasGitRepository ? new GridLength(19) : new GridLength(0);
-
-    /// <summary>非Gitでは名前を左に詰め、Git 管理下では従来の余白を保つ。</summary>
-    public Thickness GitNameMargin => HasGitRepository ? new Thickness(2, 0, 0, 0) : new Thickness(0);
-
     public PaneViewModel(IDirectoryReader reader, string initialPath)
     {
         _tabs = new PaneTabs(reader, initialPath);
@@ -194,12 +188,6 @@ public sealed partial class PaneViewModel : ObservableObject
     {
         _state.SetFilter(pattern);
         Refresh();
-    }
-
-    partial void OnHasGitRepositoryChanged(bool value)
-    {
-        OnPropertyChanged(nameof(GitBadgeColumnWidth));
-        OnPropertyChanged(nameof(GitNameMargin));
     }
 
     /// <summary>ソート方法・昇降順を変更して並べ替える(カーソル項目は維持)。</summary>

@@ -18,6 +18,20 @@ namespace Filer.App;
 /// </summary>
 internal static class Ime
 {
+    /// <summary>
+    /// true を設定した要素はフォーカス時に IME を無効化しない(メモ等、日本語入力する欄)。
+    /// Disable のフォーカスハンドラが一律に IME を切るため、入力欄はこれで除外する。
+    /// </summary>
+    public static readonly DependencyProperty AllowInputProperty =
+        DependencyProperty.RegisterAttached(
+            "AllowInput", typeof(bool), typeof(Ime), new PropertyMetadata(false));
+
+    public static void SetAllowInput(DependencyObject element, bool value) =>
+        element.SetValue(AllowInputProperty, value);
+
+    public static bool GetAllowInput(DependencyObject element) =>
+        (bool)element.GetValue(AllowInputProperty);
+
     /// <summary>ウィンドウ内のどの要素にフォーカスが移っても IME を無効のままにする。</summary>
     public static void Disable(Window window)
     {
@@ -28,7 +42,9 @@ internal static class Ime
 
     private static void OnGotFocus(object sender, KeyboardFocusChangedEventArgs e)
     {
-        if (e.NewFocus is UIElement el and not HwndHost && InputMethod.GetIsInputMethodEnabled(el))
+        if (e.NewFocus is UIElement el and not HwndHost
+            && InputMethod.GetIsInputMethodEnabled(el)
+            && !GetAllowInput(el))
             InputMethod.SetIsInputMethodEnabled(el, false);
     }
 }

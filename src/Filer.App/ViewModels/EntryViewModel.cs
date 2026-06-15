@@ -95,22 +95,22 @@ public sealed partial class EntryViewModel : ObservableObject
     public ImageSource? IconImage => ShellIconProvider.GetIcon(Entry.FullPath, Entry.IsDirectory);
 
     /// <summary>
-    /// グリッド(サムネイル)表示で取得する画像の一辺(px)。特大タイル(320px)でも鮮明になるよう
-    /// 大きめに取得し、通常(80px)/拡大(160px)タイルでは縮小表示する(全サイズで同じキャッシュを共用)。
+    /// グリッド(サムネイル)表示で取得する画像の一辺(px)。Windows のサムネイルキャッシュは 256px(Jumbo)
+    /// までのため 256 に合わせる(これを超えると毎回ファイルから実抽出になり大幅に遅くなる)。
+    /// 全タイルサイズ(通常80/拡大160/特大320)でこの1枚を共用し、表示側で拡縮する。
     /// </summary>
-    public const int ThumbnailSize = 320;
+    public const int ThumbnailSize = 256;
 
     private ImageSource? _thumbnail;
+    private bool _thumbnailRequested;
 
     /// <summary>
     /// グリッド表示用のサムネイル。生成済みなら即返し、未生成ならアイコンを仮表示して
     /// 非同期に取得する(完了時に差し替え通知)。書庫内・実在しないパスはアイコンのまま。
     /// </summary>
     /// <remarks>
-    /// 取得は毎回 provider へ依頼する(永続ラッチを持たない)。provider 側がパスで重複排除するため
-    /// スクロール中の再バインドで二重生成は起きず、容量超過で要求が捨てられた項目もスクロールで
-    /// 再表示されれば改めて要求できる。バインディングは値確定後の再評価まで getter を呼ばないため
-    /// 静止中の項目で要求が繰り返されることはない。
+    /// 容量超過で要求が捨てられたら <c>onDropped</c> でラッチを戻し、スクロールで再表示されれば改めて要求する。
+    /// 生成失敗(非対応・実在しない)はラッチを保ったまま=不要な再要求を繰り返さない。
     /// </remarks>
     public ImageSource? Thumbnail
     {
@@ -118,16 +118,22 @@ public sealed partial class EntryViewModel : ObservableObject
         {
             if (_thumbnail is not null) return _thumbnail;
 
-            if (ShellThumbnailProvider.TryGetCached(Entry.FullPath, ThumbnailSize, out var cached))
+            if (!_thumbnailRequested)
             {
-                _thumbnail = cached;
-                return cached;
+                _thumbnailRequested = true;
+                if (ShellThumbnailProvider.TryGetCached(Entry.FullPath, ThumbnailSize, out var cached))
+                {
+                    _thumbnail = cached;
+                    return cached;
+                }
+                ShellThumbnailProvider.LoadAsync(Entry.FullPath, Entry.IsDirectory, ThumbnailSize,
+                    onLoaded: image =>
+                    {
+                        _thumbnail = image;
+                        OnPropertyChanged(nameof(Thumbnail));
+                    },
+                    onDropped: () => _thumbnailRequested = false);
             }
-            ShellThumbnailProvider.LoadAsync(Entry.FullPath, Entry.IsDirectory, ThumbnailSize, image =>
-            {
-                _thumbnail = image;
-                OnPropertyChanged(nameof(Thumbnail));
-            });
             return IconImage;   // 取得できるまではアイコンを表示
         }
     }

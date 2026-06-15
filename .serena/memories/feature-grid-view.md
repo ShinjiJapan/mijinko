@@ -14,13 +14,13 @@
 
 ## App(src/Filer.App)
 - `ShellThumbnailProvider.cs`(static) — Windows シェルのサムネイル取得。`IShellItemImageFactory::GetImage`(`SHCreateItemFromParsingName` で IShellItem 生成→QI)。フォルダーは `SIIGBF_ICONONLY`(中身覗きの遅延回避)、ファイルは既定(サムネイル→無ければアイコン)。HBITMAP→`Imaging.CreateBitmapSourceFromHBitmap`→Freeze→`DeleteObject`。
-  - `TryGetCached(path,size,out img)`(同期即時表示用)/ `LoadAsync(path,isDirectory,size,onLoaded)`(要求を `BoundedLifoQueue<string,Request>`(Core)へ `lock(Sync)` で積み、`EnsureWorker`/`Worker` のワーカープール(最大 CPU/2)が取り出して生成、完了は UI Dispatcher で `onLoaded`)。
+  - `TryGetCached(path,size,out img)`(同期即時表示用)/ `LoadAsync(path,isDirectory,size,onLoaded,onDropped)`(要求を `BoundedLifoQueue<string,Request>`(Core)へ `lock(Sync)` で積み、`EnsureWorker`/`Worker` のワーカープール(最大 CPU/2)が取り出して生成、完了は UI Dispatcher で `onLoaded`)。**実在チェック(`File.Exists`/`Directory.Exists`)はワーカー側=背景スレッドで実施(UI スレッドの disk I/O を避ける)**。容量超過で捨てた要求は `onDropped` を呼ぶ。
     - **後着優先(LIFO)+ パス重複排除 + 容量上限 `MaxPending=512`**。理由=大量フォルダーを下までスクロールすると、通過した画面外の古い要求が積まれ、(1)FIFO だと止まった下端の最新要求が末尾で待つ→LIFO で解決、(2)**無制限スタックだとワーカーが画面外サムネを延々生成して占有し、繰り返しスクロールで「途中から長時間待たされる」**→容量上限で古い画面外要求を捨てて解決。捨てた項目はスクロールで戻れば呼び出し側が再要求。
     - `_activeWorkers` を Interlocked で管理、取り出し失敗と減算の隙間に積まれた要求も `lock(Sync){Pending.Count>0}` 再チェックで取りこぼさない。
   - `BoundedLifoQueue<TKey,TValue>`(Core・UI 非依存・TDD)=`LinkedList`+`Dictionary` のキー重複排除つき容量上限 LIFO。`Push`(既存キーは値更新+最前面化・件数増えない/容量超過で最古を `dropped` に返す)/`TryPop`(最前面)/`Count`/`ContainsKey`。スレッド安全でない(provider が lock で守る)。テスト `BoundedLifoQueueTests` 6件。
   - キャッシュ `ConcurrentDictionary<"path|size", ImageSource>`、上限 `CacheCap=2000` 超過で丸ごと Clear(性能最適化なので素朴で可)。
   - **実ファイル/実フォルダーのみ対象**(`File.Exists`/`Directory.Exists`)。書庫内の仮想パス・実在しないパスは何もしない=呼び出し側がアイコン表示のまま(フォールバックではなく対象外)。COMException は握って null。
-- `EntryViewModel.Thumbnail`(ImageSource?) — グリッド用画像。`ThumbnailSize=320`(特大タイル320pxでも鮮明にするため大きめに取得し、通常80px/拡大160pxは縮小表示=全サイズで同じキャッシュを共用)。生成済みなら即返し、未生成は**アイコン(`IconImage`)を仮表示**して `LoadAsync`、完了時 `OnPropertyChanged(Thumbnail)` で差し替え。**永続ラッチは持たない**(provider 側でパス重複排除するため再バインドで二重生成せず、容量超過で捨てられた項目もスクロールで戻れば再要求できる)。バインディングは値確定後の再評価まで getter を呼ばないので静止項目で要求は繰り返さない。EntryViewModel は Refresh ごとに作り直されるためキャッシュは provider 側(static)に置く。
+- `EntryViewModel.Thumbnail`(ImageSource?) — グリッド用画像。**`ThumbnailSize=256`**(Windows サムネイルキャッシュ thumbcache.db の Jumbo=256 に合わせる。**256 超(例 320)はキャッシュを外れ毎回ファイルから実抽出になり激遅**。全タイルサイズで1枚を共用し表示側で拡縮)。生成済みなら即返し、未生成は**アイコン(`IconImage`)を仮表示**して `LoadAsync(onLoaded,onDropped)`、完了時 `OnPropertyChanged(Thumbnail)` で差し替え。`_thumbnailRequested` ラッチで二重要求防止。**容量超過で要求が捨てられたら `onDropped` でラッチを戻し、スクロールで再表示されれば再要求**(生成失敗=非対応/実在しないはラッチ保持で再要求しない)。EntryViewModel は Refresh ごとに作り直されるためキャッシュは provider 側(static)に置く。
 - `PaneViewModel`:
   - `[ObservableProperty] PaneViewMode ViewMode`(既定 Details)。`OnViewModeChanged` で `DetailsVisibility`/`GridVisibility` 通知。
   - `DetailsVisibility`/`GridVisibility`(`Visibility`、コンバーター不要)。`ToggleViewMode()`。
@@ -31,7 +31,7 @@
 - 各ペインの一覧領域を `<Grid>` で包み、**詳細リスト**(既存 `LeftList`/`RightList`、`Visibility={Binding DetailsVisibility}`)と**グリッド**(新 `LeftGrid`/`RightGrid`)を重ね、可視性で切替。
 - グリッドは `local:PaneListView`(=ListView。View 指定なし=ListBox 相当)に `PaneGridStyle` 適用:
   - ItemsPanel=`local:VirtualizingWrapPanel`(**UI 仮想化**)、`ScrollViewer.CanContentScroll=True`(項目単位スクロール=パネルの IScrollInfo に委譲)、`VirtualizingPanel.IsVirtualizing=True`、`VirtualizationMode=Recycling`、横スクロール無効。パネルの `CellWidth`/`CellHeight` を **VM の `GridCellWidth`/`GridCellHeight` へ `AncestorType=ListView` でバインド**。
-  - `GridTileTemplate`(StackPanel + `Image{Binding Thumbnail}` + `Name` 中央寄せ)。名前欄は**固定高さ 32**(全タイル同寸)。タイル幅・画像サイズは**ペイン VM の `GridTileWidth`/`GridImageSize` へ `RelativeSource={AncestorType=ListView}` でバインド**(DataTemplate の DataContext は EntryViewModel なので ListView.DataContext 経由でペイン VM を参照)。サイズ切替で即反映。
+  - `GridTileTemplate`(StackPanel + `Image{Binding Thumbnail}` + `Name` 中央寄せ)。名前欄は**固定高さ 32**(全タイル同寸)。画像は **`RenderOptions.BitmapScalingMode=LowQuality`**(GPU バイリニア高速縮小。HighQuality は重いリサンプラーでスクロールが重くなるため不可。サムネ用途は LowQuality で十分)。タイル幅・画像サイズは**ペイン VM の `GridTileWidth`/`GridImageSize` へ `RelativeSource={AncestorType=ListView}` でバインド**(DataTemplate の DataContext は EntryViewModel なので ListView.DataContext 経由でペイン VM を参照)。サイズ切替で即反映。
 - `Controls/VirtualizingWrapPanel.cs`(`VirtualizingPanel`+`IScrollInfo`、namespace `Filer.App`) — 同寸タイルを横並び折り返しで**見えている行だけ実体化**する仮想化パネル(縦スクロール専用)。レイアウト計算は `GridVirtualization`(Core)へ委譲。
   - **タイル寸法 `_itemSize` はバインドされた `CellWidth`/`CellHeight`(=Core の `GridTileMetrics.Cell*`)から決める。コンテナ実測は絶対にしない**。理由:`Image{Stretch=Uniform}` を無制約 Measure すると、サイズバインドが一瞬外れた隙にサムネイル本来サイズへ膨張して `_itemSize` が乱高下→列数/extent/可視範囲が毎パス変化→**measure 無限ループ(1スクロールで数百回 measure・CPU 全コア張り付き・点滅・操作不能)**になった。固定値採用で安定。
   - `BringIndexIntoView`/`MakeVisible` でキー移動の ScrollIntoView に対応。`MakeVisible` は**移動後オフセット基準の可視矩形を返す**(入力矩形のまま返すと再呼び出しループ)。`SetVerticalOffset` はデッドゾーンを設けない(要求値=報告値、ドラッグ点滅防止)。`_isMeasuring` 中は bring-into-view を無視(実体化が誘発する RequestBringIntoView の再スクロール抑止)。
