@@ -77,6 +77,8 @@ public sealed partial class PaneViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(GridTileWidth));
         OnPropertyChanged(nameof(GridImageSize));
+        OnPropertyChanged(nameof(GridCellWidth));
+        OnPropertyChanged(nameof(GridCellHeight));
     }
 
     /// <summary>グリッド1タイルの幅(px。XAML バインド用)。</summary>
@@ -84,6 +86,12 @@ public sealed partial class PaneViewModel : ObservableObject
 
     /// <summary>グリッド1タイル内の画像の一辺(px。XAML バインド用)。</summary>
     public double GridImageSize => GridTileMetrics.ImageSize(GridSize);
+
+    /// <summary>グリッドのタイル外形(コンテナ1個ぶん)の幅(px。仮想化パネルへのバインド用)。</summary>
+    public double GridCellWidth => GridTileMetrics.CellWidth(GridSize);
+
+    /// <summary>グリッドのタイル外形(コンテナ1個ぶん)の高さ(px。仮想化パネルへのバインド用)。</summary>
+    public double GridCellHeight => GridTileMetrics.CellHeight(GridSize);
 
     /// <summary>グリッドのタイルサイズを 通常 ⇔ 拡大 で切り替える。</summary>
     public void ToggleGridSize() => GridSize = GridTileMetrics.Next(GridSize);

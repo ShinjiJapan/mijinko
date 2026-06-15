@@ -259,8 +259,9 @@
                        Height="{Binding DataContext.GridImageSize, RelativeSource={RelativeSource AncestorType=ListView}}"
                        HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,4,0,2"
                        RenderOptions.BitmapScalingMode="HighQuality" SnapsToDevicePixels="True"/>
+                <!-- 全タイルを同寸にするため名前欄は固定高さ(仮想化パネルが1個の寸法を全体に適用) -->
                 <TextBlock Text="{Binding Name}" TextAlignment="Center" TextWrapping="Wrap"
-                           TextTrimming="CharacterEllipsis" MaxHeight="32" FontSize="11"/>
+                           TextTrimming="CharacterEllipsis" Height="32" FontSize="11"/>
             </StackPanel>
         </DataTemplate>
 
@@ -323,12 +324,16 @@
             <Setter Property="ItemTemplate" Value="{StaticResource GridTileTemplate}"/>
             <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
             <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto"/>
-            <!-- WrapPanel に折り返し用のビューポート幅を与えるためピクセルスクロールにする。 -->
-            <Setter Property="ScrollViewer.CanContentScroll" Value="False"/>
+            <!-- 仮想化パネルが IScrollInfo を実装するため項目単位スクロールに委譲する。 -->
+            <Setter Property="ScrollViewer.CanContentScroll" Value="True"/>
+            <Setter Property="VirtualizingPanel.IsVirtualizing" Value="True"/>
+            <Setter Property="VirtualizingPanel.VirtualizationMode" Value="Recycling"/>
             <Setter Property="ItemsPanel">
                 <Setter.Value>
                     <ItemsPanelTemplate>
-                        <WrapPanel Orientation="Horizontal"/>
+                        <local:VirtualizingWrapPanel
+                            CellWidth="{Binding DataContext.GridCellWidth, RelativeSource={RelativeSource AncestorType=ListView}}"
+                            CellHeight="{Binding DataContext.GridCellHeight, RelativeSource={RelativeSource AncestorType=ListView}}"/>
                     </ItemsPanelTemplate>
                 </Setter.Value>
             </Setter>

@@ -1585,15 +1585,10 @@ public partial class MainWindow : Window
     /// <summary>アクティブ側がサムネイルグリッド表示か。</summary>
     private bool ActiveIsGrid => Vm.Active.ViewMode == PaneViewMode.Grid;
 
-    /// <summary>タイル幅に加える余白/枠/パディング(GridItemStyle 余白3*2 + 枠1*2 + パディング4*2 = 16)。</summary>
-    private const double GridTileChromeWidth = 16;
-    /// <summary>タイル高さに加える分(画像の上下余白6 + 名前最大32 + chrome16)。</summary>
-    private const double GridTileChromeHeight = 6 + 32 + 16;
-
-    /// <summary>アクティブ側グリッドのタイル外形幅(現在のタイルサイズに依存)。</summary>
-    private double GridTileOuterWidth => Vm.Active.GridTileWidth + GridTileChromeWidth;
-    /// <summary>アクティブ側グリッドのタイル外形高さ(現在のタイルサイズに依存)。</summary>
-    private double GridTileOuterHeight => Vm.Active.GridImageSize + GridTileChromeHeight;
+    /// <summary>アクティブ側グリッドのタイル外形幅(現在のタイルサイズに依存。仮想化パネルと同じ Core 値)。</summary>
+    private double GridTileOuterWidth => Vm.Active.GridCellWidth;
+    /// <summary>アクティブ側グリッドのタイル外形高さ(現在のタイルサイズに依存。仮想化パネルと同じ Core 値)。</summary>
+    private double GridTileOuterHeight => Vm.Active.GridCellHeight;
 
     /// <summary>グリッドの現在の列数を表示幅から概算する。</summary>
     private int GridColumns(ListView grid)
