@@ -8,6 +8,9 @@ public enum GridTileSize
 
     /// <summary>拡大サイズ(通常の約2倍)。</summary>
     Large,
+
+    /// <summary>特大サイズ(拡大の約2倍 = 通常の約4倍)。</summary>
+    ExtraLarge,
 }
 
 /// <summary>
@@ -15,11 +18,21 @@ public enum GridTileSize
 /// </summary>
 public static class GridTileMetrics
 {
-    /// <summary>タイル(画像+名前を載せる箱)の幅(px)。Large は Normal の2倍。</summary>
-    public static double TileWidth(GridTileSize size) => size == GridTileSize.Large ? 192 : 96;
+    /// <summary>タイル(画像+名前を載せる箱)の幅(px)。Large は Normal の2倍、ExtraLarge は4倍。</summary>
+    public static double TileWidth(GridTileSize size) => size switch
+    {
+        GridTileSize.ExtraLarge => 384,
+        GridTileSize.Large => 192,
+        _ => 96,
+    };
 
-    /// <summary>タイル内の画像の一辺(px)。Large は Normal の2倍。</summary>
-    public static double ImageSize(GridTileSize size) => size == GridTileSize.Large ? 160 : 80;
+    /// <summary>タイル内の画像の一辺(px)。Large は Normal の2倍、ExtraLarge は4倍。</summary>
+    public static double ImageSize(GridTileSize size) => size switch
+    {
+        GridTileSize.ExtraLarge => 320,
+        GridTileSize.Large => 160,
+        _ => 80,
+    };
 
     // タイル外形に加わる余白。XAML(GridTileTemplate / GridItemStyle)の実装と一致させること。
     /// <summary>幅の chrome(GridItemStyle 余白3*2 + 枠1*2 + パディング4*2 = 16)。</summary>
@@ -33,7 +46,11 @@ public static class GridTileMetrics
     /// <summary>タイル外形(コンテナ1個ぶん)の高さ(px)。仮想化グリッドの行計算・配置に使う。</summary>
     public static double CellHeight(GridTileSize size) => ImageSize(size) + CellChromeHeight;
 
-    /// <summary>次のサイズ(通常 ⇔ 拡大のトグル)。</summary>
-    public static GridTileSize Next(GridTileSize size) =>
-        size == GridTileSize.Large ? GridTileSize.Normal : GridTileSize.Large;
+    /// <summary>次のサイズ(通常 → 拡大 → 特大 → 通常 と循環)。</summary>
+    public static GridTileSize Next(GridTileSize size) => size switch
+    {
+        GridTileSize.Normal => GridTileSize.Large,
+        GridTileSize.Large => GridTileSize.ExtraLarge,
+        _ => GridTileSize.Normal,
+    };
 }

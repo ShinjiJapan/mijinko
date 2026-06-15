@@ -13,21 +13,30 @@ public class GridTileMetricsTests
     }
 
     [Fact]
-    public void ImageFitsInsideTile()
+    public void ExtraLarge_IsDoubleOfLarge()
     {
-        Assert.True(GridTileMetrics.ImageSize(GridTileSize.Normal) < GridTileMetrics.TileWidth(GridTileSize.Normal));
-        Assert.True(GridTileMetrics.ImageSize(GridTileSize.Large) < GridTileMetrics.TileWidth(GridTileSize.Large));
+        Assert.Equal(GridTileMetrics.TileWidth(GridTileSize.Large) * 2, GridTileMetrics.TileWidth(GridTileSize.ExtraLarge));
+        Assert.Equal(GridTileMetrics.ImageSize(GridTileSize.Large) * 2, GridTileMetrics.ImageSize(GridTileSize.ExtraLarge));
     }
 
     [Theory]
+    [InlineData(GridTileSize.Normal)]
+    [InlineData(GridTileSize.Large)]
+    [InlineData(GridTileSize.ExtraLarge)]
+    public void ImageFitsInsideTile(GridTileSize size) =>
+        Assert.True(GridTileMetrics.ImageSize(size) < GridTileMetrics.TileWidth(size));
+
+    [Theory]
     [InlineData(GridTileSize.Normal, GridTileSize.Large)]
-    [InlineData(GridTileSize.Large, GridTileSize.Normal)]
-    public void Next_Toggles(GridTileSize from, GridTileSize expected) =>
+    [InlineData(GridTileSize.Large, GridTileSize.ExtraLarge)]
+    [InlineData(GridTileSize.ExtraLarge, GridTileSize.Normal)]
+    public void Next_Cycles(GridTileSize from, GridTileSize expected) =>
         Assert.Equal(expected, GridTileMetrics.Next(from));
 
     [Theory]
     [InlineData(GridTileSize.Normal)]
     [InlineData(GridTileSize.Large)]
+    [InlineData(GridTileSize.ExtraLarge)]
     public void Cell_IsTilePlusChrome(GridTileSize size)
     {
         Assert.Equal(GridTileMetrics.TileWidth(size) + GridTileMetrics.CellChromeWidth, GridTileMetrics.CellWidth(size));

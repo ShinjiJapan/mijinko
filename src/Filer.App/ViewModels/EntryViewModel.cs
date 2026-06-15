@@ -95,10 +95,10 @@ public sealed partial class EntryViewModel : ObservableObject
     public ImageSource? IconImage => ShellIconProvider.GetIcon(Entry.FullPath, Entry.IsDirectory);
 
     /// <summary>
-    /// グリッド(サムネイル)表示で取得する画像の一辺(px)。拡大タイル(160px)でも鮮明になるよう
-    /// 大きめに取得し、通常タイル(80px)では縮小表示する(両サイズで同じキャッシュを共用)。
+    /// グリッド(サムネイル)表示で取得する画像の一辺(px)。特大タイル(320px)でも鮮明になるよう
+    /// 大きめに取得し、通常(80px)/拡大(160px)タイルでは縮小表示する(全サイズで同じキャッシュを共用)。
     /// </summary>
-    public const int ThumbnailSize = 160;
+    public const int ThumbnailSize = 320;
 
     private ImageSource? _thumbnail;
     private bool _thumbnailRequested;

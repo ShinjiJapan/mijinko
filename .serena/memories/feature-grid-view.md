@@ -1,10 +1,10 @@
 # サムネイル(グリッド)表示(Ctrl+G / view.toggleGrid)+サイズ切替(Ctrl+Shift+G)
 
-ペインの一覧を**詳細表示 ⇔ サムネイル(グリッド)表示**で切り替える機能。表示モードは**ペインごと**に独立。画像は実サムネイル、フォルダー・その他ファイルは大きいアイコン(エクスプローラー同等)。グリッドの**タイルサイズも 通常 ⇔ 拡大(約2倍)で切替**(Ctrl+Shift+G、ペインごと)。`mem:architecture-overview` の補完。
+ペインの一覧を**詳細表示 ⇔ サムネイル(グリッド)表示**で切り替える機能。表示モードは**ペインごと**に独立。画像は実サムネイル、フォルダー・その他ファイルは大きいアイコン(エクスプローラー同等)。グリッドの**タイルサイズは 通常 → 拡大(約2倍) → 特大(約4倍) を循環切替**(Ctrl+Shift+G、ペインごと)。`mem:architecture-overview` の補完。
 
 ## Core(src/Filer.Core、UI 非依存・TDD)
 - `PaneViewMode.cs` — enum `{ Details, Grid }`(既定 Details)。
-- `GridTileSize.cs` — enum `GridTileSize{Normal,Large}` + `GridTileMetrics`(`TileWidth`/`ImageSize`/`CellWidth`/`CellHeight`/`Next`)。Normal=タイル96/画像80、Large=タイル192/画像160(きっかり2倍)。**外形(コンテナ1個ぶん)**=`CellWidth=TileWidth+CellChromeWidth(16)` / `CellHeight=ImageSize+CellChromeHeight(6+32+16=54)`。chrome 定数は XAML(GridTileTemplate/GridItemStyle)実装と一致させる**唯一の出所**=仮想化パネル・MainWindow 列数計算・VM が全部これを使う。テスト `GridTileMetricsTests` 6件。
+- `GridTileSize.cs` — enum `GridTileSize{Normal,Large,ExtraLarge}` + `GridTileMetrics`(`TileWidth`/`ImageSize`/`CellWidth`/`CellHeight`/`Next`)。Normal=タイル96/画像80、Large=タイル192/画像160、ExtraLarge=タイル384/画像320(各段きっかり2倍)。`Next` は Normal→Large→ExtraLarge→Normal の循環(switch 式)。**外形(コンテナ1個ぶん)**=`CellWidth=TileWidth+CellChromeWidth(16)` / `CellHeight=ImageSize+CellChromeHeight(6+32+16=54)`。chrome 定数は XAML(GridTileTemplate/GridItemStyle)実装と一致させる**唯一の出所**=仮想化パネル・MainWindow 列数計算・VM が全部これを使う。テスト `GridTileMetricsTests` 11件。
 - `GridNavigation.cs` — グリッドのカーソル移動計算。`GridDirection{Left,Right,Up,Down}` + `Move(count, columns, index, dir)`。
   - 左右=端で回り込み(`Left`: index>0?index-1:count-1 / `Right`: index<count-1?index+1:0)。
   - 上下=行単位。範囲外なら**留まる**(`Up`: index-columns>=0?…:index / `Down`: index+columns<count?…:index)。
@@ -17,11 +17,11 @@
   - `TryGetCached(path,size,out img)`(同期即時表示用)/ `LoadAsync(path,isDirectory,size,onLoaded)`(`Task.Run`、`SemaphoreSlim`(CPU/2)で同時生成数を抑制、完了は UI Dispatcher で `onLoaded`)。
   - キャッシュ `ConcurrentDictionary<"path|size", ImageSource>`、上限 `CacheCap=2000` 超過で丸ごと Clear(性能最適化なので素朴で可)。
   - **実ファイル/実フォルダーのみ対象**(`File.Exists`/`Directory.Exists`)。書庫内の仮想パス・実在しないパスは何もしない=呼び出し側がアイコン表示のまま(フォールバックではなく対象外)。COMException は握って null。
-- `EntryViewModel.Thumbnail`(ImageSource?) — グリッド用画像。`ThumbnailSize=160`(拡大タイル160pxでも鮮明にするため大きめに取得し、通常80pxは縮小表示=両サイズで同じキャッシュを共用)。生成済みなら即返し、未生成は**アイコン(`IconImage`)を仮表示**して `LoadAsync`、完了時 `OnPropertyChanged(Thumbnail)` で差し替え。`_thumbnailRequested` で二重要求防止。EntryViewModel は Refresh ごとに作り直されるためキャッシュは provider 側(static)に置く。
+- `EntryViewModel.Thumbnail`(ImageSource?) — グリッド用画像。`ThumbnailSize=320`(特大タイル320pxでも鮮明にするため大きめに取得し、通常80px/拡大160pxは縮小表示=全サイズで同じキャッシュを共用)。生成済みなら即返し、未生成は**アイコン(`IconImage`)を仮表示**して `LoadAsync`、完了時 `OnPropertyChanged(Thumbnail)` で差し替え。`_thumbnailRequested` で二重要求防止。EntryViewModel は Refresh ごとに作り直されるためキャッシュは provider 側(static)に置く。
 - `PaneViewModel`:
   - `[ObservableProperty] PaneViewMode ViewMode`(既定 Details)。`OnViewModeChanged` で `DetailsVisibility`/`GridVisibility` 通知。
   - `DetailsVisibility`/`GridVisibility`(`Visibility`、コンバーター不要)。`ToggleViewMode()`。
-  - `[ObservableProperty] GridTileSize GridSize`(既定 Normal)+ `GridTileWidth`/`GridImageSize`(`GridTileMetrics` 由来。XAML バインド用)+ `ToggleGridSize()`。
+  - `[ObservableProperty] GridTileSize GridSize`(既定 Normal)+ `GridTileWidth`/`GridImageSize`/`GridCellWidth`/`GridCellHeight`(`GridTileMetrics` 由来。XAML バインド用)+ `ToggleGridSize()`(=`GridTileMetrics.Next` で循環)。
   - **ViewMode/GridSize は Refresh で変更されない**=フォルダー移動・タブ切替後もモード/サイズ維持。**セッション永続化はしない**(再起動で Details/Normal に戻る)。
 
 ## UI(MainWindow.xaml / .cs)
@@ -38,7 +38,7 @@
 - 両ビューとも `ItemsSource={Binding Entries}`・`SelectedIndex={Binding SelectedIndex, Mode=TwoWay}`(同じ VM 値を共有)・`GotKeyboardFocus=Pane_GotKeyboardFocus`。ドラッグ/ダブルクリックは ctor のループに `LeftGrid`/`RightGrid` を追加(`(ListView)sender` キャストは PaneListView が ListView 派生なので両対応)。
 - `MainWindow.xaml.cs`:
   - `ListFor(isLeft)`=モードに応じて詳細 or グリッドのコントロールを返す。`ActiveList`/`FocusActiveList`/`ScrollActiveIntoView` がこれを使い、グリッド時はグリッド側へフォーカス/スクロール。`ActiveIsGrid`。
-  - 列数/行数: タイル外形は `GridTileOuterWidth=Vm.Active.GridCellWidth` / `GridTileOuterHeight=Vm.Active.GridCellHeight`(=Core の `GridTileMetrics.Cell*`。仮想化パネルと同一値)。`GridColumns(grid)`=ActualWidth/外形幅、`GridRows(grid)`=ActualHeight/外形高さ(拡大時は列数が減り、移動の行幅も追従)。
+  - 列数/行数: タイル外形は `GridTileOuterWidth=Vm.Active.GridCellWidth` / `GridTileOuterHeight=Vm.Active.GridCellHeight`(=Core の `GridTileMetrics.Cell*`。仮想化パネルと同一値)。`GridColumns(grid)`=ActualWidth/外形幅、`GridRows(grid)`=ActualHeight/外形高さ(拡大・特大時は列数が減り、移動の行幅も追従)。
   - キー分岐: `cursor.up/down`→`CursorVertical`(グリッドは `GridMoveCursor(Up/Down)` 行単位、詳細は `MoveCursorWrap`)。`pane.left/right`→グリッドなら `GridMoveCursor(Left/Right)`(端で回り込み)、詳細は従来(親移動/ペイン切替)。`cursor.pageUp/Down`→グリッドは `GridMovePage`(列×行)。**グリッド中は←→がタイル移動になる**(親移動は BS、ペイン切替は Tab で代替可能)。
   - `ToggleGridView`(`view.toggleGrid`)=`Active.ToggleViewMode()`→FocusActiveList→Loaded で ScrollActiveIntoView。`ToggleGridSize`(`view.gridSize`)=`Active.ToggleGridSize()`→Loaded で ScrollActiveIntoView。
 
@@ -53,3 +53,4 @@
 ## 検証(2026-06-14)
 - 配布単一exe で `agent/tmp`(PNG 多数)を左ペイン Ctrl+G→グリッドで各 PNG の実サムネイル+フォルダーアイコン表示を確認。右ペインは詳細のまま=ペインごと独立。↓↓→ で [1/150]→[10/150](列数4: 2行+1)=行/列移動正常、選択タイルにアクセント枠を確認。
 - Ctrl+Shift+G で拡大(4列→2列・タイル約2倍・画像も拡大して鮮明)→ ↓×5 で [11/150](2列: 5行)=行移動が列数に追従、選択維持。再度 Ctrl+Shift+G で通常へ戻ることも確認。`dotnet test` 608件 全成功。
+- 2026-06-15: 特大(ExtraLarge=タイル384/画像320)を追加し循環を 通常→拡大→特大→通常 に変更。`ThumbnailSize` を 160→320 に引き上げ(特大でも鮮明)。`GridTileMetricsTests` 11件 全成功。

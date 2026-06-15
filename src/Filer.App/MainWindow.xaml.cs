@@ -548,7 +548,7 @@ public partial class MainWindow : Window
             else CyclePaneLayout();
         },
         ["view.toggleGrid"] = ToggleGridView,             // 詳細 ⇔ サムネイルグリッド表示
-        ["view.gridSize"] = ToggleGridSize,               // グリッドのタイルサイズ 通常 ⇔ 拡大
+        ["view.gridSize"] = ToggleGridSize,               // グリッドのタイルサイズ 通常 → 拡大 → 特大 を循環
         ["view.reload"] = ReloadActivePreservingScroll,   // カーソル項目とスクロール位置を保持して再読込
 
         ["tab.new"] = () => { Run(Vm.Active.AddTab); FocusActiveList(); },
@@ -1635,7 +1635,7 @@ public partial class MainWindow : Window
         Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(ScrollActiveIntoView));
     }
 
-    /// <summary>Ctrl+Shift+G: サムネイルグリッドのタイルサイズを 通常 ⇔ 拡大(約2倍)で切り替える。</summary>
+    /// <summary>Ctrl+Shift+G: サムネイルグリッドのタイルサイズを 通常 → 拡大(約2倍) → 特大(約4倍) と循環切替する。</summary>
     private void ToggleGridSize()
     {
         Vm.Active.ToggleGridSize();

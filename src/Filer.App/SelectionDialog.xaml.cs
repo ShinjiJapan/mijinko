@@ -85,7 +85,28 @@ public partial class SelectionDialog : Window
 
         RefreshList();
         HelpText.Text = BuildHelpText(ContainsGroup(entries));
-        Loaded += (_, _) => List.Focus();
+        Loaded += (_, _) => FocusSelectedItem();
+    }
+
+    /// <summary>
+    /// 選択中の行(ListBoxItem)へフォーカスする。ListBox 本体にフォーカスすると最初の↓が
+    /// 「選択行へフォーカスを移す」だけで消費され、カーソルが1つ進まないため、必ず選択行の
+    /// コンテナにフォーカスを当てる(メインウィンドウの一覧と同じ対策)。
+    /// </summary>
+    private void FocusSelectedItem()
+    {
+        var index = List.SelectedIndex;
+        if (index < 0)
+        {
+            List.Focus();
+            return;
+        }
+        List.ScrollIntoView(List.Items[index]);
+        List.UpdateLayout();   // 仮想化されたコンテナを実体化させる
+        if (List.ItemContainerGenerator.ContainerFromIndex(index) is ListBoxItem item)
+            item.Focus();
+        else
+            List.Focus();
     }
 
     private string BuildHelpText(bool hierarchical)
@@ -129,6 +150,11 @@ public partial class SelectionDialog : Window
         PromptText.Text = _groupStack.Count == 0
             ? _basePrompt
             : $"{_basePrompt}  [{string.Join(" › ", _groupStack.Select(g => g.Display))}]";
+
+        // 階層移動・再読込でも選択行にフォーカスを当て直す(最初の↓を無駄にしない)。
+        // 構築時(未 Loaded)は Loaded ハンドラー側で当てる。
+        if (IsLoaded)
+            FocusSelectedItem();
     }
 
     protected override void OnPreviewKeyDown(KeyEventArgs e)
