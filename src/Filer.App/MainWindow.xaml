@@ -5,6 +5,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:Filer.App"
         xmlns:vm="clr-namespace:Filer.App.ViewModels"
+        xmlns:avalonedit="http://icsharpcode.net/sharpdevelop/avalonedit"
         mc:Ignorable="d"
         Title="{Binding StatusText}" Height="600" Width="1000"
         Icon="Assets/appicon.ico"
@@ -563,10 +564,10 @@
                         <TextBlock x:Name="MemoHeaderText" Text="メモ" Foreground="{DynamicResource Fg.Secondary}"
                                    FontSize="12" VerticalAlignment="Center"/>
                     </Border>
-                    <TextBox x:Name="MemoBox" AcceptsReturn="True" AcceptsTab="True"
-                             TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                    <avalonedit:TextEditor x:Name="MemoBox" WordWrap="True"
+                             VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                              Background="{DynamicResource Surface.Background}" Foreground="{DynamicResource Fg.Primary}"
-                             CaretBrush="{DynamicResource Fg.Primary}" BorderThickness="0" Padding="8"
+                             BorderThickness="0" Padding="8"
                              FontFamily="Consolas, MS Gothic" FontSize="13"
                              InputMethod.IsInputMethodEnabled="True"
                              local:Ime.AllowInput="True"

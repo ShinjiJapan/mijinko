@@ -1,0 +1,54 @@
+<?xml version="1.0"?>
+<!-- メモ欄(AvalonEdit)用 Markdown ハイライト。色は名前付きで定義し、
+     実行時に MarkdownHighlighting がテーマ配色へ差し替える(foreground は仮値)。 -->
+<SyntaxDefinition name="MarkDown" xmlns="http://icsharpcode.net/sharpdevelop/syntaxdefinition/2008">
+  <Color name="Heading"    foreground="#569CD6" fontWeight="bold"/>
+  <Color name="Bold"       foreground="#D4D4D4" fontWeight="bold"/>
+  <Color name="Italic"     foreground="#D4D4D4" fontStyle="italic"/>
+  <Color name="Code"       foreground="#CE9178"/>
+  <Color name="Link"       foreground="#4EC9B0"/>
+  <Color name="ListMarker" foreground="#D7BA7D" fontWeight="bold"/>
+  <Color name="Blockquote" foreground="#6A9955" fontStyle="italic"/>
+  <Color name="Rule"       foreground="#808080"/>
+
+  <RuleSet ignoreCase="false">
+    <!-- フェンスコードブロック ``` ... ``` -->
+    <Span color="Code" multiline="true">
+      <Begin>^\s*```</Begin>
+      <End>^\s*```</End>
+    </Span>
+
+    <!-- 見出し(行頭の #) -->
+    <Rule color="Heading">^\#{1,6}[ \t].*$</Rule>
+
+    <!-- 引用(行頭の >) -->
+    <Rule color="Blockquote">^[ \t]*&gt;.*$</Rule>
+
+    <!-- 水平線(ハイフン・アスタリスク・アンダースコアの3連以上) -->
+    <Rule color="Rule">^[ \t]*(-[ \t]*-[ \t]*-[-\t ]*|\*[ \t]*\*[ \t]*\*[*\t ]*|_[ \t]*_[ \t]*_[_\t ]*)$</Rule>
+
+    <!-- 箇条書き/番号付きの行頭マーカー -->
+    <Rule color="ListMarker">^[ \t]*([-*+]|\d+\.)[ \t]</Rule>
+
+    <!-- インラインコード `code` -->
+    <Span color="Code">
+      <Begin>`</Begin>
+      <End>`</End>
+    </Span>
+
+    <!-- リンク [text](url) -->
+    <Rule color="Link">\[[^\]]*\]\([^)]*\)</Rule>
+
+    <!-- 太字 **text** -->
+    <Span color="Bold">
+      <Begin>\*\*</Begin>
+      <End>\*\*</End>
+    </Span>
+
+    <!-- 斜体 *text* -->
+    <Span color="Italic">
+      <Begin>(?&lt;!\*)\*(?!\*)</Begin>
+      <End>(?&lt;!\*)\*(?!\*)</End>
+    </Span>
+  </RuleSet>
+</SyntaxDefinition>

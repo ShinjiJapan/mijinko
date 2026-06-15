@@ -77,6 +77,12 @@ public partial class MainWindow : Window
         // ターミナル(WebView2)はフォーカスが WPF の IsKeyboardFocusWithin に安定して
         // 反映されないため _terminalFocused フラグで追跡する(FocusTerminalPanel/FocusActiveList)。
         MemoHost.IsKeyboardFocusWithinChanged += (_, _) => UpdateKeyHelp();
+
+        // AvalonEdit の実フォーカスは内部の TextArea が受けるため、IME 有効化と
+        // 無効化除外(Ime.AllowInput)を TextArea 側にも設定する。これがないと
+        // Ime.Disable のフォーカスハンドラがメモ欄の IME を切ってしまう。
+        InputMethod.SetIsInputMethodEnabled(MemoBox.TextArea, true);
+        Ime.SetAllowInput(MemoBox.TextArea, true);
     }
 
     /// <summary>ターミナル(WebView2)にフォーカスがあるか。フッター表示の状態判定に使う。</summary>
@@ -467,9 +473,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        // メモ入力中(TextBox にフォーカス)は文字入力を優先し、Esc=閉じる・表示切替キー=全画面切替だけ処理する。
+        // メモ入力中(MemoBox にフォーカス)は文字入力を優先し、Esc=閉じる・表示切替キー=全画面切替だけ処理する。
         // それ以外のキー(C/M/D 等のファイラー操作)は奪わずメモへ委ねる。
-        if (e.OriginalSource is TextBox memoBox && ReferenceEquals(memoBox, MemoBox))
+        // AvalonEdit の実フォーカスは内部 TextArea のため OriginalSource では判定せず IsKeyboardFocusWithin で見る。
+        if (MemoVisible && MemoBox.IsKeyboardFocusWithin)
         {
             if (key == Key.Escape)
             {
@@ -623,6 +630,13 @@ public partial class MainWindow : Window
     /// </summary>
     private void FocusPaneSide(bool left)
     {
+        // F2 で片側を全画面化中は、隠れている反対ペインへは移らずアンカー側に留める。
+        if (_paneStep == 1 && left != _paneAnchorLeft)
+        {
+            SetActivePaneFlags(_paneAnchorLeft);
+            FocusActiveList();
+            return;
+        }
         if (MemoVisible && (_memoView == MemoView.FullScreen || _memoOnLeft == left))
         {
             MemoBox.Focus();
@@ -1237,10 +1251,18 @@ public partial class MainWindow : Window
         }
         _memoOnLeft = !Vm.IsLeftActive;    // 非アクティブ側に置く
         _memoView = MemoView.OnePane;
+        ApplyMemoHighlighting();           // 現在のテーマ配色で Markdown ハイライトを設定
         UpdateMemoHeader();                // 全画面切替キーは設定で変わるので実際の割当を表示
         ApplyMemoView();
         MemoBox.Focus();
-        MemoBox.CaretIndex = MemoBox.Text.Length;
+        MemoBox.CaretOffset = MemoBox.Text.Length;
+    }
+
+    /// <summary>現在のテーマ(背景輝度でライト/ダーク判定)に合わせて Markdown ハイライトを適用する。</summary>
+    private void ApplyMemoHighlighting()
+    {
+        var isDark = ThemeManager.CurrentMarkdownColors().IsDark;
+        MemoBox.SyntaxHighlighting = MarkdownHighlighting.ForTheme(isDark);
     }
 
     /// <summary>Esc / 再度の U: メモを閉じる(内容を保存し、一覧へフォーカスを戻す)。</summary>
@@ -1289,7 +1311,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>入力のたびに保存をデバウンス予約する(初回ロード中の変更は無視)。</summary>
-    private void MemoBox_TextChanged(object sender, TextChangedEventArgs e)
+    private void MemoBox_TextChanged(object? sender, EventArgs e)
     {
         if (!_memoLoaded) return;
         _memoSaveTimer ??= CreateMemoSaveTimer();
