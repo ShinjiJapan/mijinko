@@ -101,32 +101,33 @@ public sealed partial class EntryViewModel : ObservableObject
     public const int ThumbnailSize = 320;
 
     private ImageSource? _thumbnail;
-    private bool _thumbnailRequested;
 
     /// <summary>
     /// グリッド表示用のサムネイル。生成済みなら即返し、未生成ならアイコンを仮表示して
     /// 非同期に取得する(完了時に差し替え通知)。書庫内・実在しないパスはアイコンのまま。
     /// </summary>
+    /// <remarks>
+    /// 取得は毎回 provider へ依頼する(永続ラッチを持たない)。provider 側がパスで重複排除するため
+    /// スクロール中の再バインドで二重生成は起きず、容量超過で要求が捨てられた項目もスクロールで
+    /// 再表示されれば改めて要求できる。バインディングは値確定後の再評価まで getter を呼ばないため
+    /// 静止中の項目で要求が繰り返されることはない。
+    /// </remarks>
     public ImageSource? Thumbnail
     {
         get
         {
             if (_thumbnail is not null) return _thumbnail;
 
-            if (!_thumbnailRequested)
+            if (ShellThumbnailProvider.TryGetCached(Entry.FullPath, ThumbnailSize, out var cached))
             {
-                _thumbnailRequested = true;
-                if (ShellThumbnailProvider.TryGetCached(Entry.FullPath, ThumbnailSize, out var cached))
-                {
-                    _thumbnail = cached;
-                    return cached;
-                }
-                ShellThumbnailProvider.LoadAsync(Entry.FullPath, Entry.IsDirectory, ThumbnailSize, image =>
-                {
-                    _thumbnail = image;
-                    OnPropertyChanged(nameof(Thumbnail));
-                });
+                _thumbnail = cached;
+                return cached;
             }
+            ShellThumbnailProvider.LoadAsync(Entry.FullPath, Entry.IsDirectory, ThumbnailSize, image =>
+            {
+                _thumbnail = image;
+                OnPropertyChanged(nameof(Thumbnail));
+            });
             return IconImage;   // 取得できるまではアイコンを表示
         }
     }

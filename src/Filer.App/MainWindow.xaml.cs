@@ -485,6 +485,14 @@ public partial class MainWindow : Window
             return;
         }
 
+        // グリッド(サムネイル)表示中の Escape は詳細表示へ戻す(Ctrl+G と同じ復帰)。
+        if (key == Key.Escape && modifiers == ModifierKeys.None && ActiveIsGrid)
+        {
+            ToggleGridView();
+            e.Handled = true;
+            return;
+        }
+
         Action? action = null;
         var resolved = _keyToAction.TryGetValue((key, modifiers), out var actionId) &&
             _actions.TryGetValue(actionId, out action);

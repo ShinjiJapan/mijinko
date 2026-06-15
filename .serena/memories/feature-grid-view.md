@@ -14,10 +14,13 @@
 
 ## App(src/Filer.App)
 - `ShellThumbnailProvider.cs`(static) — Windows シェルのサムネイル取得。`IShellItemImageFactory::GetImage`(`SHCreateItemFromParsingName` で IShellItem 生成→QI)。フォルダーは `SIIGBF_ICONONLY`(中身覗きの遅延回避)、ファイルは既定(サムネイル→無ければアイコン)。HBITMAP→`Imaging.CreateBitmapSourceFromHBitmap`→Freeze→`DeleteObject`。
-  - `TryGetCached(path,size,out img)`(同期即時表示用)/ `LoadAsync(path,isDirectory,size,onLoaded)`(`Task.Run`、`SemaphoreSlim`(CPU/2)で同時生成数を抑制、完了は UI Dispatcher で `onLoaded`)。
+  - `TryGetCached(path,size,out img)`(同期即時表示用)/ `LoadAsync(path,isDirectory,size,onLoaded)`(要求を `BoundedLifoQueue<string,Request>`(Core)へ `lock(Sync)` で積み、`EnsureWorker`/`Worker` のワーカープール(最大 CPU/2)が取り出して生成、完了は UI Dispatcher で `onLoaded`)。
+    - **後着優先(LIFO)+ パス重複排除 + 容量上限 `MaxPending=512`**。理由=大量フォルダーを下までスクロールすると、通過した画面外の古い要求が積まれ、(1)FIFO だと止まった下端の最新要求が末尾で待つ→LIFO で解決、(2)**無制限スタックだとワーカーが画面外サムネを延々生成して占有し、繰り返しスクロールで「途中から長時間待たされる」**→容量上限で古い画面外要求を捨てて解決。捨てた項目はスクロールで戻れば呼び出し側が再要求。
+    - `_activeWorkers` を Interlocked で管理、取り出し失敗と減算の隙間に積まれた要求も `lock(Sync){Pending.Count>0}` 再チェックで取りこぼさない。
+  - `BoundedLifoQueue<TKey,TValue>`(Core・UI 非依存・TDD)=`LinkedList`+`Dictionary` のキー重複排除つき容量上限 LIFO。`Push`(既存キーは値更新+最前面化・件数増えない/容量超過で最古を `dropped` に返す)/`TryPop`(最前面)/`Count`/`ContainsKey`。スレッド安全でない(provider が lock で守る)。テスト `BoundedLifoQueueTests` 6件。
   - キャッシュ `ConcurrentDictionary<"path|size", ImageSource>`、上限 `CacheCap=2000` 超過で丸ごと Clear(性能最適化なので素朴で可)。
   - **実ファイル/実フォルダーのみ対象**(`File.Exists`/`Directory.Exists`)。書庫内の仮想パス・実在しないパスは何もしない=呼び出し側がアイコン表示のまま(フォールバックではなく対象外)。COMException は握って null。
-- `EntryViewModel.Thumbnail`(ImageSource?) — グリッド用画像。`ThumbnailSize=320`(特大タイル320pxでも鮮明にするため大きめに取得し、通常80px/拡大160pxは縮小表示=全サイズで同じキャッシュを共用)。生成済みなら即返し、未生成は**アイコン(`IconImage`)を仮表示**して `LoadAsync`、完了時 `OnPropertyChanged(Thumbnail)` で差し替え。`_thumbnailRequested` で二重要求防止。EntryViewModel は Refresh ごとに作り直されるためキャッシュは provider 側(static)に置く。
+- `EntryViewModel.Thumbnail`(ImageSource?) — グリッド用画像。`ThumbnailSize=320`(特大タイル320pxでも鮮明にするため大きめに取得し、通常80px/拡大160pxは縮小表示=全サイズで同じキャッシュを共用)。生成済みなら即返し、未生成は**アイコン(`IconImage`)を仮表示**して `LoadAsync`、完了時 `OnPropertyChanged(Thumbnail)` で差し替え。**永続ラッチは持たない**(provider 側でパス重複排除するため再バインドで二重生成せず、容量超過で捨てられた項目もスクロールで戻れば再要求できる)。バインディングは値確定後の再評価まで getter を呼ばないので静止項目で要求は繰り返さない。EntryViewModel は Refresh ごとに作り直されるためキャッシュは provider 側(static)に置く。
 - `PaneViewModel`:
   - `[ObservableProperty] PaneViewMode ViewMode`(既定 Details)。`OnViewModeChanged` で `DetailsVisibility`/`GridVisibility` 通知。
   - `DetailsVisibility`/`GridVisibility`(`Visibility`、コンバーター不要)。`ToggleViewMode()`。
@@ -40,7 +43,7 @@
   - `ListFor(isLeft)`=モードに応じて詳細 or グリッドのコントロールを返す。`ActiveList`/`FocusActiveList`/`ScrollActiveIntoView` がこれを使い、グリッド時はグリッド側へフォーカス/スクロール。`ActiveIsGrid`。
   - 列数/行数: タイル外形は `GridTileOuterWidth=Vm.Active.GridCellWidth` / `GridTileOuterHeight=Vm.Active.GridCellHeight`(=Core の `GridTileMetrics.Cell*`。仮想化パネルと同一値)。`GridColumns(grid)`=ActualWidth/外形幅、`GridRows(grid)`=ActualHeight/外形高さ(拡大・特大時は列数が減り、移動の行幅も追従)。
   - キー分岐: `cursor.up/down`→`CursorVertical`(グリッドは `GridMoveCursor(Up/Down)` 行単位、詳細は `MoveCursorWrap`)。`pane.left/right`→グリッドなら `GridMoveCursor(Left/Right)`(端で回り込み)、詳細は従来(親移動/ペイン切替)。`cursor.pageUp/Down`→グリッドは `GridMovePage`(列×行)。**グリッド中は←→がタイル移動になる**(親移動は BS、ペイン切替は Tab で代替可能)。
-  - `ToggleGridView`(`view.toggleGrid`)=`Active.ToggleViewMode()`→FocusActiveList→Loaded で ScrollActiveIntoView。`ToggleGridSize`(`view.gridSize`)=`Active.ToggleGridSize()`→Loaded で ScrollActiveIntoView。
+  - `ToggleGridView`(`view.toggleGrid`)=`Active.ToggleViewMode()`→FocusActiveList→Loaded で ScrollActiveIntoView。**グリッド表示中の Escape(修飾なし)も `ToggleGridView` で詳細へ復帰**(OnPreviewKeyDown のアクション解決前で処理)。`ToggleGridSize`(`view.gridSize`)=`Active.ToggleGridSize()`→Loaded で ScrollActiveIntoView。
 
 ## キー
 `KeyBindings.cs` に `view.toggleGrid`(既定 Ctrl+G、フッター「サムネ表示」)と `view.gridSize`(既定 Ctrl+Shift+G、フッター「サムネ拡大」)。いずれも衝突なし・設定(Z)で変更可。フッターは Ctrl 押下時に表示。

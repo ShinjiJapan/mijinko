@@ -5,6 +5,8 @@ using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
+using Filer.Core;
 
 namespace Filer.App;
 
@@ -18,10 +20,23 @@ public static class ShellThumbnailProvider
 {
     // path|size → 生成済みサムネイル。
     private static readonly ConcurrentDictionary<string, ImageSource> Cache = new();
-    // 同時生成数を抑える(大量画像フォルダーで CPU/ディスクを飽和させない)。
-    private static readonly SemaphoreSlim Gate = new(Math.Max(2, Environment.ProcessorCount / 2));
+    // 未処理の生成要求。後着優先(LIFO)+ パス重複排除 + 容量上限。
+    //  - LIFO: スクロールを止めた瞬間に見えている最新要求を最優先で処理し、下端でも待たせない。
+    //  - 容量上限: スクロールで画面外へ流れた古い要求を捨て、誰も見ていないサムネ生成でワーカーを
+    //    占有し続けない(無制限だと繰り返しスクロールで在庫が膨らみ、見える要求まで待たされた)。
+    //    捨てた項目はスクロールで戻れば呼び出し側が再要求する。
+    private static readonly object Sync = new();
+    private static readonly BoundedLifoQueue<string, Request> Pending = new(MaxPending);
+    // 同時生成数の上限(大量画像フォルダーで CPU/ディスクを飽和させない)。
+    private static readonly int MaxWorkers = Math.Max(2, Environment.ProcessorCount / 2);
+    // 未処理要求の保持上限(数画面分の先読みで十分。超過分=古い画面外要求は捨てる)。
+    private const int MaxPending = 512;
+    // 稼働中ワーカー数(MaxWorkers まで)。
+    private static int _activeWorkers;
     // キャッシュ上限(超えたら丸ごと破棄してメモリを抑える。性能最適化なので素朴で十分)。
     private const int CacheCap = 2000;
+
+    private readonly record struct Request(string Path, bool IsDirectory, int Size, Action<ImageSource> OnLoaded);
 
     private static string Key(string path, int size) => $"{path}|{size}";
 
@@ -49,23 +64,54 @@ public static class ShellThumbnailProvider
         var dispatcher = Application.Current?.Dispatcher;
         if (dispatcher is null) return;
 
-        Task.Run(async () =>
-        {
-            await Gate.WaitAsync().ConfigureAwait(false);
-            try
-            {
-                var image = Create(path, isDirectory, size);
-                if (image is null) return;
+        // 後着優先で積み(古い画面外要求は容量上限で捨てる)、空きワーカーがあれば起動する。
+        lock (Sync) Pending.Push(Key(path, size), new Request(path, isDirectory, size, onLoaded), out _);
+        EnsureWorker(dispatcher);
+    }
 
-                if (Cache.Count >= CacheCap) Cache.Clear();
-                Cache[Key(path, size)] = image;
-                _ = dispatcher.BeginInvoke(new Action(() => onLoaded(image)));
-            }
-            finally
+    /// <summary>ワーカー数が上限未満なら1つ起動する(キューを処理し切るまで回す)。</summary>
+    private static void EnsureWorker(Dispatcher dispatcher)
+    {
+        while (true)
+        {
+            var current = Volatile.Read(ref _activeWorkers);
+            if (current >= MaxWorkers) return;
+            if (Interlocked.CompareExchange(ref _activeWorkers, current + 1, current) == current) break;
+        }
+        Task.Run(() => Worker(dispatcher));
+    }
+
+    /// <summary>後着優先で要求を取り出し、サムネイルを生成して UI スレッドへ反映する。</summary>
+    private static void Worker(Dispatcher dispatcher)
+    {
+        try
+        {
+            while (true)
             {
-                Gate.Release();
+                Request req;
+                lock (Sync) { if (!Pending.TryPop(out req)) break; }
+
+                var key = Key(req.Path, req.Size);
+                if (!Cache.TryGetValue(key, out var image))
+                {
+                    image = Create(req.Path, req.IsDirectory, req.Size);
+                    if (image is null) continue;
+                    if (Cache.Count >= CacheCap) Cache.Clear();
+                    Cache[key] = image;
+                }
+                var result = image;
+                var callback = req.OnLoaded;
+                _ = dispatcher.BeginInvoke(new Action(() => callback(result)));
             }
-        });
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _activeWorkers);
+            // 取り出し失敗と減算の隙間に積まれた要求を取りこぼさない。
+            bool hasMore;
+            lock (Sync) hasMore = Pending.Count > 0;
+            if (hasMore) EnsureWorker(dispatcher);
+        }
     }
 
     /// <summary>シェル API でサムネイル(または大きいアイコン)を生成する。失敗時は null。</summary>
