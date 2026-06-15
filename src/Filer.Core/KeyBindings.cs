@@ -38,12 +38,15 @@ public static class KeyBindingActions
         new("favorite.add", "お気に入りに登録", "移動", new[] { "A" }, "お気に入り"),
         new("favorite.select", "お気に入りへ移動", "移動", new[] { "D1", "NumPad1" }, "お気に入り選択"),
         new("history.select", "フォルダー履歴から移動", "移動", new[] { "H" }, "履歴"),
+        new("entry.edit", "テキスト編集(アクティブペインで開く)", "基本操作", new[] { "I" }, "編集"),
         new("memo.toggle", "メモ表示の切替(反対ペイン)", "ツール", new[] { "U" }, "メモ"),
         new("terminal.open", "ターミナルを開く/フォーカス", "ツール", new[] { "T" }, "ターミナル"),
         // ターミナルにフォーカスがある間だけ働く専用キー(それ以外のキーは全て端末へ送る)。
         // 既定は空きキー(F5 は更新に割当済み)。フッターには出さない。
         new("terminal.focusBack", "ターミナル中: 一覧へフォーカスを戻す", "ツール", new[] { "F6" }, null),
         new("terminal.collapse", "ターミナル中: 表示をたたむ(セッションは保持)", "ツール", new[] { "F4" }, null),
+        // テキスト編集中だけ働く専用キー(逆ペインにプレビュー)。フッターには出さない(エディター中のみ表示)。
+        new("editor.preview", "テキスト編集中: 逆ペインにプレビュー(Markdown など)", "ツール", new[] { "F2" }, null),
         new("view.toggleFullscreen", "表示切替(通常⇄全画面)", "表示", new[] { "F1" }, "表示切替(通常⇄全画面)"),
         new("view.toggleGrid", "詳細⇔サムネイル表示の切替", "表示", new[] { "Ctrl+G" }, "サムネ表示"),
         new("view.gridSize", "サムネイルのサイズ切替(小⇔大)", "表示", new[] { "Ctrl+Shift+G" }, "サムネ拡大"),

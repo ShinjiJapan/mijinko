@@ -45,7 +45,8 @@ public partial class PreviewWindow : Window
     // true: 横並び2枚表示(左=カーソル画像/右=次の画像)。1 キーで切り替える。
     private bool _twoUp;
 
-    public PreviewWindow(MainViewModel main, FrameworkElement paneRegion, KeyBindingMap keyMap)
+    public PreviewWindow(MainViewModel main, FrameworkElement paneRegion, KeyBindingMap keyMap,
+        bool startInPaneRegion = false)
     {
         InitializeComponent();
         // 表示専用(テキストは読み取り専用)。日本語入力 ON でも 表示切替/Esc 等が効くよう IME を無効化する。
@@ -57,6 +58,10 @@ public partial class PreviewWindow : Window
         // Markdown / HTML はソース表示で開く(S キーでレンダリングへ切替)。
         _sourceMode = FilePreview.InitialSourceMode(FilePreview.ClassifyByExtension(_pane.SelectedItemPath));
         ShowCurrent();
+
+        // 編集中の逆ペインプレビューなど、最初からペイン領域に重ねて開きたい場合(既定は全画面)。
+        if (startInPaneRegion)
+            Loaded += (_, _) => { _view = PreviewView.PaneRegion; ApplyPreviewView(); };
     }
 
     /// <summary>ペインのカーソル位置の項目を、種別に応じて表示する。</summary>

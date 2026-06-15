@@ -76,4 +76,15 @@ public static class FilePreview
     /// </summary>
     public static bool InitialSourceMode(PreviewKind kind) =>
         kind == PreviewKind.Markdown || kind == PreviewKind.Html;
+
+    /// <summary>アプリ内テキストエディターで編集できる種別か(テキスト系のみ。画像・PDF は対象外)。</summary>
+    public static bool IsEditable(PreviewKind kind) =>
+        kind is PreviewKind.Text or PreviewKind.Markdown or PreviewKind.Code or PreviewKind.Html;
+
+    /// <summary>
+    /// レンダリング表示(プレビュー)を持つ種別か。編集中に逆ペインでプレビューできる対象の判定に使う
+    /// (Markdown=HTML 描画 / HTML=ブラウザ描画 / Code=シンタックスハイライト表示)。
+    /// </summary>
+    public static bool HasRenderedPreview(PreviewKind kind) =>
+        kind is PreviewKind.Markdown or PreviewKind.Html or PreviewKind.Code;
 }

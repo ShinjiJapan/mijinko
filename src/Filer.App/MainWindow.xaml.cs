@@ -83,6 +83,11 @@ public partial class MainWindow : Window
         // Ime.Disable のフォーカスハンドラがメモ欄の IME を切ってしまう。
         InputMethod.SetIsInputMethodEnabled(MemoBox.TextArea, true);
         Ime.SetAllowInput(MemoBox.TextArea, true);
+        InputMethod.SetIsInputMethodEnabled(EditorBox.TextArea, true);
+        Ime.SetAllowInput(EditorBox.TextArea, true);
+
+        // エディターへフォーカスが出入りしたらフッターをエディター用キーへ切り替える。
+        EditorHost.IsKeyboardFocusWithinChanged += (_, _) => UpdateKeyHelp();
     }
 
     /// <summary>ターミナル(WebView2)にフォーカスがあるか。フッター表示の状態判定に使う。</summary>
@@ -112,7 +117,7 @@ public partial class MainWindow : Window
     private KeyBindingMap? _keyMap;
 
     private string _normalKeyHelp = "", _ctrlKeyHelp = "", _shiftKeyHelp = "";
-    private string _memoKeyHelp = "", _terminalKeyHelp = "";
+    private string _memoKeyHelp = "", _terminalKeyHelp = "", _editorKeyHelp = "";
 
     /// <summary>メモ編集中(MemoBox フォーカス)に効くキー。view.toggleFullscreen は設定から動的に引く。</summary>
     private static readonly IReadOnlyList<KeyHelp.ContextHelpEntry> MemoHelpEntries = new[]
@@ -165,6 +170,11 @@ public partial class MainWindow : Window
     /// その状態で使えるキーの一覧を表示する。それ以外は修飾キー(Ctrl/Shift)に応じた一覧。</summary>
     private void UpdateKeyHelp()
     {
+        if (EditorVisible && EditorBox.IsKeyboardFocusWithin)
+        {
+            KeyHelpText.Text = _editorKeyHelp;
+            return;
+        }
         if (MemoVisible && MemoBox.IsKeyboardFocusWithin)
         {
             KeyHelpText.Text = _memoKeyHelp;
@@ -473,6 +483,31 @@ public partial class MainWindow : Window
             return;
         }
 
+        // テキスト編集中(EditorBox にフォーカス)は文字入力を優先し、Esc=閉じる・表示切替キー=全画面切替・
+        // プレビューキー(逆ペインにプレビュー)だけ処理する。それ以外のキーは奪わずエディターへ委ねる。
+        if (EditorVisible && EditorBox.IsKeyboardFocusWithin)
+        {
+            if (key == Key.Escape)
+            {
+                CloseEditor();
+                e.Handled = true;
+            }
+            else if (_keyToAction.TryGetValue((key, modifiers), out var edId))
+            {
+                if (edId == "view.toggleFullscreen")
+                {
+                    CycleEditorView();
+                    e.Handled = true;
+                }
+                else if (edId == "editor.preview" && FilePreview.HasRenderedPreview(_editorKind))
+                {
+                    PreviewFromEditor();
+                    e.Handled = true;
+                }
+            }
+            return;
+        }
+
         // メモ入力中(MemoBox にフォーカス)は文字入力を優先し、Esc=閉じる・表示切替キー=全画面切替だけ処理する。
         // それ以外のキー(C/M/D 等のファイラー操作)は奪わずメモへ委ねる。
         // AvalonEdit の実フォーカスは内部 TextArea のため OriginalSource では判定せず IsKeyboardFocusWithin で見る。
@@ -557,8 +592,9 @@ public partial class MainWindow : Window
         },
         ["view.toggleFullscreen"] = () =>
         {
-            // 表示の通常⇄全画面トグル。メモ→ターミナル→ファイルペインの順に対象を選ぶ。
-            if (MemoVisible) CycleMemoView();
+            // 表示の通常⇄全画面トグル。エディター→メモ→ターミナル→ファイルペインの順に対象を選ぶ。
+            if (EditorVisible) CycleEditorView();
+            else if (MemoVisible) CycleMemoView();
             else if (TerminalVisible) CycleTerminalView();
             else CyclePaneLayout();
         },
@@ -612,6 +648,7 @@ public partial class MainWindow : Window
         ["favorite.select"] = ShowFavoriteSelector,
         ["history.select"] = ShowHistorySelector,        // 開いたフォルダーの履歴から移動
 
+        ["entry.edit"] = OpenEditor,                     // I: カーソル位置のテキストファイルをエディターで開く
         ["memo.toggle"] = ToggleMemo,                    // メモ(反対ペイン)の表示/非表示
         ["terminal.open"] = OpenOrFocusTerminal,         // ターミナルを開く/フォーカス
         ["terminal.pick"] = OpenTerminalWithPicker,      // 種類を選んでターミナル
@@ -635,6 +672,11 @@ public partial class MainWindow : Window
         {
             SetActivePaneFlags(_paneAnchorLeft);
             FocusActiveList();
+            return;
+        }
+        if (EditorVisible && (_editorView == EditorView.FullScreen || _editorOnLeft == left))
+        {
+            EditorBox.Focus();
             return;
         }
         if (MemoVisible && (_memoView == MemoView.FullScreen || _memoOnLeft == left))
@@ -1146,6 +1188,7 @@ public partial class MainWindow : Window
     private void OpenTerminalTab(TerminalProfile profile)
     {
         ResetPaneLayout();   // ペイン全画面中だと列幅0でオーバーレイが潰れるため通常へ戻す
+        if (EditorVisible) CloseEditor();   // 同じ領域のオーバーレイ重なりを避ける(編集内容は保存)
         EnsureTerminalPanel();
         if (!TerminalOpen)
         {
@@ -1243,6 +1286,7 @@ public partial class MainWindow : Window
         if (MemoVisible) { CloseMemo(); return; }
 
         ResetPaneLayout();                 // ペイン全画面中だと列幅0でオーバーレイが潰れるため通常へ戻す
+        if (EditorVisible) CloseEditor();          // 同じ領域のオーバーレイ重なりを避ける(編集内容は保存)
         if (TerminalVisible) CollapseTerminal();   // 同じ領域のオーバーレイ重なりを避ける(セッションは保持)
         if (!_memoLoaded)
         {
@@ -1334,6 +1378,190 @@ public partial class MainWindow : Window
         _memoStore.Save(MemoBox.Text);
     }
 
+    // ---- テキストエディター(I)。アクティブペイン領域にファイルを重ねて編集する ----
+    // 文字コード(BOM 含む)は開いたときのものを維持して自動保存する。編集中の指定キーで逆ペインにプレビューできる。
+
+    private enum EditorView { OnePane, FullScreen }
+
+    private EditorView _editorView = EditorView.OnePane;
+    /// <summary>編集中ファイルのフルパス(未オープン時は null)。</summary>
+    private string? _editorPath;
+    /// <summary>開いたときの文字コードと BOM の有無(保存時に維持する)。</summary>
+    private System.Text.Encoding _editorEncoding = System.Text.Encoding.UTF8;
+    private bool _editorHasBom;
+    /// <summary>編集中ファイルのプレビュー種別(逆ペインプレビュー可否の判定に使う)。</summary>
+    private PreviewKind _editorKind = PreviewKind.None;
+    /// <summary>1画面表示時にどちら側の列を占有するか(開いたときアクティブ側へ決定)。</summary>
+    private bool _editorOnLeft;
+    /// <summary>ファイル本文を EditorBox へ読み込み済みか(初回ロード分の TextChanged を保存対象から外す)。</summary>
+    private bool _editorLoaded;
+    /// <summary>入力のたびに即書き込まず、少し待ってまとめて保存するためのデバウンスタイマー。</summary>
+    private DispatcherTimer? _editorSaveTimer;
+    /// <summary>自動保存に失敗した旨を通知済みか(同一編集セッションで繰り返しダイアログを出さない)。</summary>
+    private bool _editorSaveErrorNotified;
+
+    /// <summary>エディターが画面に表示されているか。</summary>
+    private bool EditorVisible => EditorHost.Visibility == Visibility.Visible;
+
+    /// <summary>I: カーソル位置のテキストファイルをアクティブペイン領域で開く。テキスト系以外・書庫内は対象外。</summary>
+    private void OpenEditor()
+    {
+        var active = Vm.Active;
+        if (!active.HasItems || active.Current.IsParent) return;
+        if (active.Current.IsDirectory || active.Current.IsArchive) return;
+
+        var path = active.SelectedItemPath;
+        // 書庫内ファイルは書き戻せないため編集不可。実ファイルのみ対象。
+        if (Filer.Core.ArchivePath.TrySplit(path, out _, out _)) return;
+        if (!File.Exists(path)) return;
+
+        var kind = FilePreview.ClassifyByExtension(path);
+        if (!FilePreview.IsEditable(kind)) return;
+
+        ResetPaneLayout();                 // ペイン全画面中だと列幅0でオーバーレイが潰れるため通常へ戻す
+        if (TerminalVisible) CollapseTerminal();
+        if (MemoVisible) CloseMemo();
+
+        TextFileIo.TextContent content;
+        try { content = TextFileIo.Read(path); }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "ファイルを開けません", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        _editorPath = path;
+        _editorEncoding = content.Encoding;
+        _editorHasBom = content.HasBom;
+        _editorKind = kind;
+        _editorSaveErrorNotified = false;
+
+        _editorLoaded = false;             // 本文設定で起きる TextChanged を保存対象から外す
+        EditorBox.Text = content.Text;
+        _editorLoaded = true;
+        EditorBox.SyntaxHighlighting = EditorHighlighting.ForPath(path, ThemeManager.CurrentMarkdownColors().IsDark);
+
+        _editorOnLeft = Vm.IsLeftActive;   // アクティブ側に置く(プレビューは逆ペインへ出す)
+        _editorView = EditorView.OnePane;
+        BuildEditorHelp();
+        UpdateEditorHeader();
+        ApplyEditorView();
+        EditorBox.Focus();
+        EditorBox.CaretOffset = 0;
+    }
+
+    /// <summary>Esc / 再度の I: エディターを閉じる(内容を保存し、一覧へフォーカスを戻す)。</summary>
+    private void CloseEditor()
+    {
+        if (!EditorVisible) return;
+        FlushEditor();
+        EditorHost.Visibility = Visibility.Collapsed;
+        _editorView = EditorView.OnePane;
+        _editorPath = null;
+        FocusActiveList();
+    }
+
+    /// <summary>表示切替キー: エディター表示を 1画面 ⇄ 全画面 でトグルする。</summary>
+    private void CycleEditorView()
+    {
+        if (!EditorVisible) return;
+        _editorView = _editorView == EditorView.FullScreen ? EditorView.OnePane : EditorView.FullScreen;
+        ApplyEditorView();
+        EditorBox.Focus();
+    }
+
+    /// <summary>現在の表示形態をオーバーレイの列・列スパンへ反映する。</summary>
+    private void ApplyEditorView()
+    {
+        switch (_editorView)
+        {
+            case EditorView.OnePane:
+                Grid.SetColumn(EditorHost, _editorOnLeft ? 0 : 2);
+                Grid.SetColumnSpan(EditorHost, 1);
+                break;
+            case EditorView.FullScreen:
+                Grid.SetColumn(EditorHost, 0);
+                Grid.SetColumnSpan(EditorHost, 3);   // 両ペイン＋スプリッターを覆う
+                break;
+        }
+        EditorHost.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>ヘッダーにファイル名と、閉じる/全画面/プレビューの実際の割り当てキーを表示する。</summary>
+    private void UpdateEditorHeader()
+    {
+        var name = _editorPath is null ? "" : Path.GetFileName(_editorPath);
+        var full = GestureDisplay("view.toggleFullscreen");
+        var preview = FilePreview.HasRenderedPreview(_editorKind) ? GestureDisplay("editor.preview") : "";
+
+        var keys = "Esc:閉じる";
+        if (!string.IsNullOrEmpty(full)) keys += $"  {full}:全画面";
+        if (!string.IsNullOrEmpty(preview)) keys += $"  {preview}:プレビュー";
+        EditorHeaderText.Text = $"編集 — {name}  ({keys})";
+    }
+
+    /// <summary>エディター中フッターのキー説明を、現在のファイル種別に応じて組み立てる。</summary>
+    private void BuildEditorHelp()
+    {
+        var entries = new List<KeyHelp.ContextHelpEntry>
+        {
+            new(null, "Escape", "閉じる"),
+            new("view.toggleFullscreen", null, "全画面切替"),
+        };
+        if (FilePreview.HasRenderedPreview(_editorKind))
+            entries.Add(new("editor.preview", null, "プレビュー(逆ペイン)"));
+        _editorKeyHelp = KeyHelp.BuildContext(KeyMap(), entries);
+        UpdateKeyHelp();
+    }
+
+    /// <summary>編集中の指定キー: 最新内容を保存し、逆ペイン領域にプレビューを重ねて表示する。</summary>
+    private void PreviewFromEditor()
+    {
+        if (_editorPath is null || !FilePreview.HasRenderedPreview(_editorKind)) return;
+        FlushEditor();   // プレビューはファイルから読むため、先に最新内容を書き出す
+        Run(() =>
+        {
+            // エディターはアクティブ側にあるため、プレビューは逆ペイン領域へ重ねる。
+            var paneRegion = _editorOnLeft ? RightPane : LeftPane;
+            var window = new PreviewWindow(Vm, paneRegion, KeyMap(), startInPaneRegion: true) { Owner = this };
+            window.ShowDialog();
+        });
+        EditorBox.Focus();
+    }
+
+    /// <summary>入力のたびに保存をデバウンス予約する(初回ロード中の変更は無視)。</summary>
+    private void EditorBox_TextChanged(object? sender, EventArgs e)
+    {
+        if (!_editorLoaded) return;
+        _editorSaveTimer ??= CreateEditorSaveTimer();
+        _editorSaveTimer.Stop();
+        _editorSaveTimer.Start();
+    }
+
+    private DispatcherTimer CreateEditorSaveTimer()
+    {
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+        timer.Tick += (_, _) => FlushEditor();
+        return timer;
+    }
+
+    /// <summary>保留中の編集を、開いたときの文字コード・BOM を保ったままファイルへ書き出す。</summary>
+    private void FlushEditor()
+    {
+        if (!_editorLoaded || _editorPath is null) return;
+        _editorSaveTimer?.Stop();
+        try
+        {
+            TextFileIo.Write(_editorPath, EditorBox.Text, _editorEncoding, _editorHasBom);
+        }
+        catch (Exception ex)
+        {
+            if (_editorSaveErrorNotified) return;   // 同一セッションで繰り返し通知しない
+            _editorSaveErrorNotified = true;
+            MessageBox.Show(this, ex.Message, "保存に失敗しました", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
     // ---- ファイルペインの表示2状態(表示切替キー)。通常(50/50) ⇄ アクティブ側を全画面 をトグルする ----
 
     /// <summary>0=通常 / 1=アンカー側を全画面。</summary>
@@ -1381,6 +1609,7 @@ public partial class MainWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         FlushMemo();                       // 未保存のメモを書き出す
+        FlushEditor();                     // 未保存の編集を書き出す
         _terminalPanel?.CloseAll();
         _searchProxy?.Dispose();   // パイプ閉鎖 → 常駐ヘルパーが自己終了する
         base.OnClosed(e);

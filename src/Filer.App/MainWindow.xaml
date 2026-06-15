@@ -574,6 +574,30 @@
                              TextChanged="MemoBox_TextChanged"/>
                 </DockPanel>
             </Border>
+
+            <!-- テキストエディター(I)のオーバーレイ。編集対象ファイルをアクティブペイン領域に重ね、
+                 表示切替キーで1画面⇄全画面、編集中の指定キーで逆ペインにプレビュー、Esc で閉じる。
+                 入力はリアルタイムに(開いたときの文字コードを保ったまま)自動保存される。
+                 メインウィンドウは IME 無効だが、エディターは日本語入力できるよう個別に有効化する。 -->
+            <Border x:Name="EditorHost" Grid.Column="0" Margin="2"
+                    Background="{DynamicResource Surface.Background}"
+                    BorderBrush="{DynamicResource Border.Default}" BorderThickness="1"
+                    Visibility="Collapsed" Panel.ZIndex="7">
+                <DockPanel>
+                    <Border DockPanel.Dock="Top" Background="{DynamicResource PanelAlt.Background}" Padding="6,3">
+                        <TextBlock x:Name="EditorHeaderText" Text="編集" Foreground="{DynamicResource Fg.Secondary}"
+                                   FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                    </Border>
+                    <avalonedit:TextEditor x:Name="EditorBox" WordWrap="False" ShowLineNumbers="True"
+                             VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                             Background="{DynamicResource Surface.Background}" Foreground="{DynamicResource Fg.Primary}"
+                             BorderThickness="0" Padding="8"
+                             FontFamily="Consolas, MS Gothic" FontSize="13"
+                             InputMethod.IsInputMethodEnabled="True"
+                             local:Ime.AllowInput="True"
+                             TextChanged="EditorBox_TextChanged"/>
+                </DockPanel>
+            </Border>
         </Grid>
 
         <!-- ステータス/ヘルプバー -->

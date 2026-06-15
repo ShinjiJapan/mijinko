@@ -113,4 +113,45 @@ public sealed class FilePreviewTests
     {
         Assert.False(FilePreview.InitialSourceMode(kind));
     }
+
+    // テキスト系(Text/Markdown/Code/Html)はエディターで編集可能。
+    [Theory]
+    [InlineData(PreviewKind.Text)]
+    [InlineData(PreviewKind.Markdown)]
+    [InlineData(PreviewKind.Code)]
+    [InlineData(PreviewKind.Html)]
+    public void IsEditable_TextKinds_ReturnsTrue(PreviewKind kind)
+    {
+        Assert.True(FilePreview.IsEditable(kind));
+    }
+
+    // 画像・PDF・非対応は編集不可。
+    [Theory]
+    [InlineData(PreviewKind.Image)]
+    [InlineData(PreviewKind.Pdf)]
+    [InlineData(PreviewKind.None)]
+    public void IsEditable_NonTextKinds_ReturnsFalse(PreviewKind kind)
+    {
+        Assert.False(FilePreview.IsEditable(kind));
+    }
+
+    // レンダリング表示を持つ(編集中に逆ペインでプレビューできる)のは Markdown/Html/Code。
+    [Theory]
+    [InlineData(PreviewKind.Markdown)]
+    [InlineData(PreviewKind.Html)]
+    [InlineData(PreviewKind.Code)]
+    public void HasRenderedPreview_RenderableKinds_ReturnsTrue(PreviewKind kind)
+    {
+        Assert.True(FilePreview.HasRenderedPreview(kind));
+    }
+
+    [Theory]
+    [InlineData(PreviewKind.Text)]
+    [InlineData(PreviewKind.Image)]
+    [InlineData(PreviewKind.Pdf)]
+    [InlineData(PreviewKind.None)]
+    public void HasRenderedPreview_OtherKinds_ReturnsFalse(PreviewKind kind)
+    {
+        Assert.False(FilePreview.HasRenderedPreview(kind));
+    }
 }

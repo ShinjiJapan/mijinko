@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- AvalonEdit 用 Salesforce Apex(.cls/.apex)シンタックスハイライト定義。
+     色は名前付きで定義し、実行時に EditorHighlighting がテーマ配色へ差し替える。
+     Apex は大文字小文字を区別しないため ignoreCase="true"。 -->
+<SyntaxDefinition name="Apex" extensions=".cls;.apex"
+                  xmlns="http://icsharpcode.net/sharpdevelop/syntaxdefinition/2008">
+
+  <Color name="Comment" foreground="#6A9955" />
+  <Color name="String" foreground="#CE9178" />
+  <Color name="Keyword" foreground="#569CD6" fontWeight="bold" />
+  <Color name="Type" foreground="#4EC9B0" />
+  <Color name="Number" foreground="#B5CEA8" />
+  <Color name="Soql" foreground="#C586C0" />
+  <Color name="Annotation" foreground="#DCDCAA" />
+
+  <RuleSet ignoreCase="true">
+
+    <Span color="Comment" begin="//" />
+    <Span color="Comment" multiline="true" begin="/\*" end="\*/" />
+
+    <Span color="String" multiline="false">
+      <Begin>'</Begin>
+      <End>'</End>
+      <RuleSet>
+        <!-- 文字列内のエスケープ(\' など)を文字列内として扱う -->
+        <Span begin="\\" end="." />
+      </RuleSet>
+    </Span>
+
+    <!-- インライン SOQL/SOSL: [ SELECT ... ] / [ FIND ... ] のみ対象(配列添字は対象外) -->
+    <Span color="Soql" multiline="true" begin="\[(?=\s*(SELECT|FIND)\b)" end="\]" />
+
+    <!-- アノテーション(@isTest, @AuraEnabled など) -->
+    <Rule color="Annotation">@\w+</Rule>
+
+    <Keywords color="Keyword">
+      <Word>abstract</Word><Word>break</Word><Word>catch</Word><Word>class</Word>
+      <Word>continue</Word><Word>do</Word><Word>else</Word><Word>enum</Word>
+      <Word>extends</Word><Word>final</Word><Word>finally</Word><Word>for</Word>
+      <Word>global</Word><Word>if</Word><Word>implements</Word><Word>instanceof</Word>
+      <Word>interface</Word><Word>new</Word><Word>override</Word><Word>private</Word>
+      <Word>protected</Word><Word>public</Word><Word>return</Word><Word>static</Word>
+      <Word>super</Word><Word>switch</Word><Word>this</Word><Word>throw</Word>
+      <Word>transient</Word><Word>try</Word><Word>virtual</Word><Word>void</Word>
+      <Word>webservice</Word><Word>while</Word><Word>when</Word><Word>with</Word>
+      <Word>without</Word><Word>sharing</Word><Word>testmethod</Word><Word>system</Word>
+      <Word>trigger</Word><Word>on</Word><Word>before</Word><Word>after</Word>
+      <Word>insert</Word><Word>update</Word><Word>delete</Word><Word>undelete</Word>
+      <Word>upsert</Word><Word>merge</Word><Word>select</Word><Word>from</Word>
+      <Word>where</Word><Word>limit</Word><Word>order</Word><Word>by</Word>
+      <Word>group</Word><Word>having</Word><Word>asc</Word><Word>desc</Word>
+      <Word>and</Word><Word>or</Word><Word>not</Word><Word>in</Word>
+      <Word>like</Word><Word>null</Word><Word>true</Word><Word>false</Word>
+      <Word>get</Word><Word>set</Word>
+    </Keywords>
+
+    <Keywords color="Type">
+      <Word>Blob</Word><Word>Boolean</Word><Word>Date</Word><Word>Datetime</Word>
+      <Word>Decimal</Word><Word>Double</Word><Word>ID</Word><Word>Integer</Word>
+      <Word>Long</Word><Word>Object</Word><Word>String</Word><Word>Time</Word>
+      <Word>List</Word><Word>Set</Word><Word>Map</Word><Word>sObject</Word>
+      <Word>SObject</Word>
+    </Keywords>
+
+    <Rule color="Number">
+      \b0[xX][0-9a-fA-F]+|\b\d+(\.\d+)?([eE][+-]?\d+)?[lLdD]?\b
+    </Rule>
+
+  </RuleSet>
+</SyntaxDefinition>
