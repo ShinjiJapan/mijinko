@@ -97,7 +97,7 @@ public sealed partial class EntryViewModel : ObservableObject
     /// <summary>
     /// グリッド(サムネイル)表示で取得する画像の一辺(px)。Windows のサムネイルキャッシュは 256px(Jumbo)
     /// までのため 256 に合わせる(これを超えると毎回ファイルから実抽出になり大幅に遅くなる)。
-    /// 全タイルサイズ(通常80/拡大160/特大320)でこの1枚を共用し、表示側で拡縮する。
+    /// 全タイルサイズ(小80/大256)でこの1枚を共用する(いずれも256px以下=拡大せず鮮明)。
     /// </summary>
     public const int ThumbnailSize = 256;
 

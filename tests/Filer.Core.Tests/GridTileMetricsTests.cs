@@ -6,37 +6,35 @@ namespace Filer.Core.Tests;
 public class GridTileMetricsTests
 {
     [Fact]
-    public void Large_IsDoubleOfNormal()
+    public void Sizes_AreSmallAndLarge()
     {
-        Assert.Equal(GridTileMetrics.TileWidth(GridTileSize.Normal) * 2, GridTileMetrics.TileWidth(GridTileSize.Large));
-        Assert.Equal(GridTileMetrics.ImageSize(GridTileSize.Normal) * 2, GridTileMetrics.ImageSize(GridTileSize.Large));
-    }
-
-    [Fact]
-    public void ExtraLarge_IsDoubleOfLarge()
-    {
-        Assert.Equal(GridTileMetrics.TileWidth(GridTileSize.Large) * 2, GridTileMetrics.TileWidth(GridTileSize.ExtraLarge));
-        Assert.Equal(GridTileMetrics.ImageSize(GridTileSize.Large) * 2, GridTileMetrics.ImageSize(GridTileSize.ExtraLarge));
+        Assert.Equal(80, GridTileMetrics.ImageSize(GridTileSize.Normal));
+        Assert.Equal(256, GridTileMetrics.ImageSize(GridTileSize.Large));
+        Assert.True(GridTileMetrics.ImageSize(GridTileSize.Large) > GridTileMetrics.ImageSize(GridTileSize.Normal));
     }
 
     [Theory]
     [InlineData(GridTileSize.Normal)]
     [InlineData(GridTileSize.Large)]
-    [InlineData(GridTileSize.ExtraLarge)]
+    public void Image_DoesNotExceedThumbnailSource(GridTileSize size) =>
+        // 表示は取得サイズ(256)以下=拡大せず鮮明。
+        Assert.True(GridTileMetrics.ImageSize(size) <= 256);
+
+    [Theory]
+    [InlineData(GridTileSize.Normal)]
+    [InlineData(GridTileSize.Large)]
     public void ImageFitsInsideTile(GridTileSize size) =>
         Assert.True(GridTileMetrics.ImageSize(size) < GridTileMetrics.TileWidth(size));
 
     [Theory]
     [InlineData(GridTileSize.Normal, GridTileSize.Large)]
-    [InlineData(GridTileSize.Large, GridTileSize.ExtraLarge)]
-    [InlineData(GridTileSize.ExtraLarge, GridTileSize.Normal)]
-    public void Next_Cycles(GridTileSize from, GridTileSize expected) =>
+    [InlineData(GridTileSize.Large, GridTileSize.Normal)]
+    public void Next_TogglesBetweenTwoSizes(GridTileSize from, GridTileSize expected) =>
         Assert.Equal(expected, GridTileMetrics.Next(from));
 
     [Theory]
     [InlineData(GridTileSize.Normal)]
     [InlineData(GridTileSize.Large)]
-    [InlineData(GridTileSize.ExtraLarge)]
     public void Cell_IsTilePlusChrome(GridTileSize size)
     {
         Assert.Equal(GridTileMetrics.TileWidth(size) + GridTileMetrics.CellChromeWidth, GridTileMetrics.CellWidth(size));

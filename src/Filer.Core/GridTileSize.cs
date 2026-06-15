@@ -1,36 +1,32 @@
 namespace Filer.Core;
 
-/// <summary>サムネイル(グリッド)表示のタイルサイズ。</summary>
+/// <summary>サムネイル(グリッド)表示のタイルサイズ。小(既定)と大の2段階。</summary>
 public enum GridTileSize
 {
-    /// <summary>通常サイズ。既定。</summary>
+    /// <summary>小サイズ。既定。</summary>
     Normal,
 
-    /// <summary>拡大サイズ(通常の約2倍)。</summary>
+    /// <summary>大サイズ(画像256px)。サムネイル取得上限と同じ大きさで等倍表示=鮮明。</summary>
     Large,
-
-    /// <summary>特大サイズ(拡大の約2倍 = 通常の約4倍)。</summary>
-    ExtraLarge,
 }
 
 /// <summary>
 /// グリッド表示のタイル寸法。XAML のバインドと MainWindow の列数計算で同じ値を使うため一元化する。
+/// 画像は小80px・大256pxで、いずれもサムネイル取得サイズ(256px)以下=拡大せず鮮明に表示できる。
 /// </summary>
 public static class GridTileMetrics
 {
-    /// <summary>タイル(画像+名前を載せる箱)の幅(px)。Large は Normal の2倍、ExtraLarge は4倍。</summary>
+    /// <summary>タイル(画像+名前を載せる箱)の幅(px)。画像の一辺 + 横 chrome。</summary>
     public static double TileWidth(GridTileSize size) => size switch
     {
-        GridTileSize.ExtraLarge => 384,
-        GridTileSize.Large => 192,
+        GridTileSize.Large => 272,
         _ => 96,
     };
 
-    /// <summary>タイル内の画像の一辺(px)。Large は Normal の2倍、ExtraLarge は4倍。</summary>
+    /// <summary>タイル内の画像の一辺(px)。小80・大256(取得サイズ256以下で等倍以下=鮮明)。</summary>
     public static double ImageSize(GridTileSize size) => size switch
     {
-        GridTileSize.ExtraLarge => 320,
-        GridTileSize.Large => 160,
+        GridTileSize.Large => 256,
         _ => 80,
     };
 
@@ -46,11 +42,10 @@ public static class GridTileMetrics
     /// <summary>タイル外形(コンテナ1個ぶん)の高さ(px)。仮想化グリッドの行計算・配置に使う。</summary>
     public static double CellHeight(GridTileSize size) => ImageSize(size) + CellChromeHeight;
 
-    /// <summary>次のサイズ(通常 → 拡大 → 特大 → 通常 と循環)。</summary>
+    /// <summary>次のサイズ(小 ⇔ 大 を交互に切替)。</summary>
     public static GridTileSize Next(GridTileSize size) => size switch
     {
         GridTileSize.Normal => GridTileSize.Large,
-        GridTileSize.Large => GridTileSize.ExtraLarge,
         _ => GridTileSize.Normal,
     };
 }

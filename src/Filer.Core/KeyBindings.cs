@@ -46,7 +46,7 @@ public static class KeyBindingActions
         new("terminal.collapse", "ターミナル中: 表示をたたむ(セッションは保持)", "ツール", new[] { "F4" }, null),
         new("view.toggleFullscreen", "表示切替(通常⇄全画面)", "表示", new[] { "F1" }, "表示切替(通常⇄全画面)"),
         new("view.toggleGrid", "詳細⇔サムネイル表示の切替", "表示", new[] { "Ctrl+G" }, "サムネ表示"),
-        new("view.gridSize", "サムネイルのサイズ切替(通常⇔拡大)", "表示", new[] { "Ctrl+Shift+G" }, "サムネ拡大"),
+        new("view.gridSize", "サムネイルのサイズ切替(小⇔大)", "表示", new[] { "Ctrl+Shift+G" }, "サムネ拡大"),
         new("view.reload", "最新の状態に更新", "表示", new[] { "F5" }, "更新"),
         new("settings.open", "設定を開く", "ツール", new[] { "Z" }, "設定"),
 
