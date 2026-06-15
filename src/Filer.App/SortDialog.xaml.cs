@@ -36,12 +36,25 @@ public partial class SortDialog : Window
             case Key.S: MethodSize.IsChecked = true; e.Handled = true; break;
             case Key.A: OrderAsc.IsChecked = true; e.Handled = true; break;
             case Key.R: OrderDesc.IsChecked = true; e.Handled = true; break;
+            case Key.Up: MoveMethod(-1); e.Handled = true; break;
+            case Key.Down: MoveMethod(1); e.Handled = true; break;
+            case Key.Left: OrderAsc.IsChecked = true; e.Handled = true; break;
+            case Key.Right: OrderDesc.IsChecked = true; e.Handled = true; break;
             case Key.Enter: Commit(); e.Handled = true; break;
             case Key.Escape: DialogResult = false; Close(); e.Handled = true; break;
         }
     }
 
     private void Ok_Click(object sender, RoutedEventArgs e) => Commit();
+
+    private void MoveMethod(int delta)
+    {
+        var methods = new[] { MethodName, MethodExt, MethodDate, MethodSize };
+        int index = System.Array.FindIndex(methods, m => m.IsChecked == true);
+        if (index < 0) index = 0;
+        index = (index + delta + methods.Length) % methods.Length;
+        methods[index].IsChecked = true;
+    }
 
     private void Commit()
     {

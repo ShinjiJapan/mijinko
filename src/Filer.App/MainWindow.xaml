@@ -265,7 +265,8 @@
         </DataTemplate>
 
         <!-- グリッドの1タイル枠(ListViewItem): マーク=オレンジ背景+太字、
-             アクティブペインの選択タイルはアクセント色の枠で示す(詳細表示の下線に相当)。 -->
+             アクティブペインの選択タイルは選択背景色+アクセント枠(1px固定でガタつき防止)で示す。
+             マーク済みかつ選択中はオレンジ背景を維持したままアクセント枠で示す。 -->
         <Style x:Key="GridItemStyle" TargetType="ListViewItem">
             <Setter Property="Foreground" Value="{DynamicResource Fg.Primary}"/>
             <Setter Property="Margin" Value="3"/>
@@ -285,7 +286,17 @@
                                     <Condition Binding="{Binding IsSelected, RelativeSource={RelativeSource Self}}" Value="True"/>
                                     <Condition Binding="{Binding DataContext.IsActive, RelativeSource={RelativeSource AncestorType=ListView}}" Value="True"/>
                                 </MultiDataTrigger.Conditions>
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Accent}"/>
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Selection.Background}"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Accent.Bright}"/>
+                            </MultiDataTrigger>
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding IsSelected, RelativeSource={RelativeSource Self}}" Value="True"/>
+                                    <Condition Binding="{Binding DataContext.IsActive, RelativeSource={RelativeSource AncestorType=ListView}}" Value="True"/>
+                                    <Condition Binding="{Binding IsMarked}" Value="True"/>
+                                </MultiDataTrigger.Conditions>
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Marked.Background}"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Accent.Bright}"/>
                             </MultiDataTrigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -537,7 +548,7 @@
             <Border x:Name="TerminalHost" Grid.Column="2" Margin="2" Background="{DynamicResource App.Background}"
                     Visibility="Collapsed" Panel.ZIndex="5"/>
 
-            <!-- メモ(U)のオーバーレイ。反対ペイン領域に重ね、F1 で1画面⇄全画面、Esc で閉じる。
+            <!-- メモ(U)のオーバーレイ。反対ペイン領域に重ね、表示切替キーで1画面⇄全画面、Esc で閉じる。
                  入力はリアルタイムに保存され、次回 U を押すと復元される。
                  メインウィンドウは IME 無効だが、メモは日本語入力できるよう個別に有効化する。 -->
             <Border x:Name="MemoHost" Grid.Column="2" Margin="2"

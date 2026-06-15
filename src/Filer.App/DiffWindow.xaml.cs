@@ -95,7 +95,7 @@ public partial class DiffWindow : Window
         return File.ReadAllBytes(a).AsSpan().SequenceEqual(File.ReadAllBytes(b));
     }
 
-    /// <summary>WebView2 内の通知(Esc/Enter=閉じる, F1=表示切替)を処理する。</summary>
+    /// <summary>WebView2 内の通知(Esc/Enter=閉じる, 表示切替キー=表示切替)を処理する。</summary>
     private void OnWebViewMessage(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
         switch (e.TryGetWebMessageAsString())

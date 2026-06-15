@@ -115,13 +115,13 @@ public partial class MainWindow : Window
         new KeyHelp.ContextHelpEntry("view.toggleFullscreen", null, "全画面切替"),
     };
 
-    /// <summary>ターミナルフォーカス中に効くキー。Ctrl+T/F1 は terminal.html 側 JS の固定キー、
-    /// terminal.collapse は設定から動的に引く。</summary>
+    /// <summary>ターミナルフォーカス中に効くキー。いずれも設定マップから動的に引く
+    /// (表示切替・一覧へフォーカス戻しは terminal.html 側 JS が同じ設定キーで横取りする)。</summary>
     private static readonly IReadOnlyList<KeyHelp.ContextHelpEntry> TerminalHelpEntries = new[]
     {
-        new KeyHelp.ContextHelpEntry(null, "Ctrl+T", "一覧へ"),
+        new KeyHelp.ContextHelpEntry("terminal.focusBack", null, "一覧へ"),
         new KeyHelp.ContextHelpEntry("terminal.collapse", null, "たたむ"),
-        new KeyHelp.ContextHelpEntry(null, "F1", "表示切替"),
+        new KeyHelp.ContextHelpEntry("view.toggleFullscreen", null, "表示切替"),
     };
 
     /// <summary>設定からキー割り当て表・ツール実行処理・フッターヘルプを作り直す(設定変更後にも呼ぶ)。</summary>
@@ -585,6 +585,7 @@ public partial class MainWindow : Window
         ["archive.zip"] = CompressInteractive,           // X: 選択項目を ZIP 圧縮
         ["path.copy"] = CopyPathToClipboard,             // カーソル項目のフルパスをコピー
         ["file.diff"] = ShowDiff,                        // 2ファイルの差分を side-by-side 表示
+        ["folder.compare"] = ShowFolderCompare,          // 左右フォルダーを再帰比較してツリー表示
 
         ["sort.select"] = ShowSortDialog,                // ソート方法・昇降順の選択
         ["search.incremental"] = ShowIncrementalSearch,  // 名前のインクリメンタルサーチ
@@ -718,6 +719,36 @@ public partial class MainWindow : Window
             // ペイン領域表示は反対側ペインへ重ねる(自分の一覧を見ながら差分を見るため)。
             var paneRegion = Vm.IsLeftActive ? RightPane : LeftPane;
             var window = new DiffWindow(targets.LeftPath, targets.RightPath, paneRegion, KeyMap()) { Owner = this };
+            window.ShowDialog();
+        });
+        FocusActiveList();
+    }
+
+    /// <summary>
+    /// Ctrl+Shift+C: 左右ペインのフォルダーを再帰比較してツリー表示する。
+    /// 比較前にオプションダイアログ(前回値が既定)を出し、対象が解決できなければ理由を通知する。
+    /// </summary>
+    private void ShowFolderCompare()
+    {
+        var resolution = Vm.ResolveFolderCompareTargets();
+        if (resolution.Targets is not { } targets)
+        {
+            MessageBox.Show(this, resolution.Error, "フォルダー比較", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var dialog = new FolderCompareOptionsDialog(targets.LeftPath, targets.RightPath, _folderComparePrefs.Load())
+        {
+            Owner = this,
+        };
+        if (dialog.ShowDialog() != true) return;
+        _folderComparePrefs.Save(dialog.Options);
+
+        Run(() =>
+        {
+            var paneRegion = Vm.IsLeftActive ? RightPane : LeftPane;
+            var window = new FolderCompareWindow(
+                targets.LeftPath, targets.RightPath, dialog.Options, paneRegion, KeyMap(), Vm) { Owner = this };
             window.ShowDialog();
         });
         FocusActiveList();
@@ -1031,6 +1062,11 @@ public partial class MainWindow : Window
     private readonly TerminalPreferenceStore _terminalPrefs = new(Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "Filer", "terminal-prefs.json"));
+
+    /// <summary>前回のフォルダー比較オプションを記憶し、次回の既定にする(永続化)。</summary>
+    private readonly FolderComparePreferenceStore _folderComparePrefs = new(Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "Filer", "folder-compare-prefs.json"));
 
     /// <summary>
     /// 新しいタブの作業フォルダー。カーソルがサブフォルダー上ならそのフォルダー、

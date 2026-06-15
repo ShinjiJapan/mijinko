@@ -349,9 +349,25 @@ public sealed partial class MainViewModel : ObservableObject
         return DiffTargetResolver.Resolve(marked, Left.SelectedItemPath, Right.SelectedItemPath);
     }
 
+    /// <summary>
+    /// フォルダー(ツリー)比較の対象2フォルダーを解決する。左ペインの現在フォルダー vs 右ペインの現在フォルダー。
+    /// </summary>
+    public FolderCompareResolution ResolveFolderCompareTargets() =>
+        FolderCompareTargetResolver.Resolve(Left.DirectoryPath, Right.DirectoryPath);
+
     /// <summary>ファイル検索の結果を仮想一覧として登録し、表示用パスを返す(「転送して閉じる」用)。</summary>
     public string RegisterSearchResults(string label, string baseDirectory, IReadOnlyList<FileEntry> results)
         => _searchResults.Register(label, baseDirectory, results);
+
+    /// <summary>
+    /// フォルダー比較の結果を、指定した側(左/右)のペインへ仮想一覧として転送・表示する。
+    /// </summary>
+    public void TransferComparisonToPane(
+        FolderCompareSide side, string label, string baseDirectory, IReadOnlyList<FileEntry> entries)
+    {
+        var path = _searchResults.Register(label, baseDirectory, entries);
+        (side == FolderCompareSide.Left ? Left : Right).NavigateTo(path);
+    }
 
     /// <summary>アクティブ側のカーソル項目を Windows の関連付けで開く。</summary>
     public void OpenSelectedWithAssociation()
