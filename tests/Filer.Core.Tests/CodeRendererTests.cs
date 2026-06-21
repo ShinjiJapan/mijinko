@@ -66,6 +66,14 @@ public sealed class CodeRendererTests
     }
 
     [Fact]
+    public void ToHtmlDocument_EmbedsConfiguredEditKey_PostsRequestEdit()
+    {
+        var html = CodeRenderer.ToHtmlDocument("x", "csharp", ThemeColors.Dark, new[] { "F1" }, new[] { "I" });
+        Assert.Contains("request-edit", html);
+        Assert.Contains("key.toLowerCase() === 'i'", html);
+    }
+
+    [Fact]
     public void ToHtmlDocument_DarkTheme_ReferencesDarkStylesheet()
     {
         var dark = CodeRenderer.ToHtmlDocument("x", "", ThemeColors.Dark);

@@ -104,6 +104,6 @@ public partial class App : Application
         if (existing.Count == 0)
             return null;
         var active = Math.Clamp(pane.ActiveTabIndex, 0, existing.Count - 1);
-        return new SessionPane(existing, active);
+        return new SessionPane(existing, active, pane.ViewMode, pane.GridSize);
     }
 }

@@ -92,6 +92,22 @@ public sealed class MarkdownRendererTests
     }
 
     [Fact]
+    public void ToHtmlDocument_EmbedsConfiguredEditKey_PostsRequestEdit()
+    {
+        var html = MarkdownRenderer.ToHtmlDocument("# x", ThemeColors.Dark, new[] { "F1" }, new[] { "I" });
+        Assert.Contains("request-edit", html);
+        Assert.Contains("key.toLowerCase() === 'i'", html);
+    }
+
+    [Fact]
+    public void ToHtmlDocument_NoEditGestures_EditConditionIsFalse()
+    {
+        var html = MarkdownRenderer.ToHtmlDocument("# x", ThemeColors.Dark, new[] { "F1" });
+        // 編集キー未指定なら編集分岐は常に false(発火しない)。
+        Assert.Contains("if (false)", html);
+    }
+
+    [Fact]
     public void ToHtmlDocument_EscapesRawHtmlInText()
     {
         // 本文中の生 HTML/スクリプトはそのまま実行されないことの最低限の確認

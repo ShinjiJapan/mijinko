@@ -150,4 +150,93 @@ public class BulkRenamerTests
         var r = BulkRenamer.Plan(new[] { "a.txt" }, opt);
         Assert.Equal(BulkRenameStatus.Invalid, r[0].Status);
     }
+
+    // --- 連番: 日付置換文字 $(...) ---
+
+    [Fact]
+    public void Sequence_expands_date_token_from_last_modified()
+    {
+        var items = new[] { new BulkRenameItem("photo.jpg", 0, new DateTime(2026, 4, 18, 7, 4, 1)) };
+        var opt = new BulkRenameOptions { Mode = BulkRenameMode.Sequence, Template = "$(yyyyMMddHHmmss)_#" };
+        var r = BulkRenamer.Plan(items, opt);
+        Assert.Equal("20260418070401_1.jpg", r[0].NewName);
+    }
+
+    [Fact]
+    public void Sequence_date_token_combines_with_star()
+    {
+        var items = new[] { new BulkRenameItem("memo.txt", 0, new DateTime(2026, 4, 18)) };
+        var opt = new BulkRenameOptions { Mode = BulkRenameMode.Sequence, Template = "$(yyyyMMdd)_*" };
+        var r = BulkRenamer.Plan(items, opt);
+        Assert.Equal("20260418_memo.txt", r[0].NewName);
+    }
+
+    [Fact]
+    public void Sequence_unclosed_date_token_stays_literal()
+    {
+        var items = new[] { new BulkRenameItem("a.jpg", 0, new DateTime(2026, 4, 18)) };
+        var opt = new BulkRenameOptions { Mode = BulkRenameMode.Sequence, Template = "$(yyyy" };
+        var r = BulkRenamer.Plan(items, opt);
+        Assert.Equal("$(yyyy.jpg", r[0].NewName);
+    }
+
+    // --- 連番: 並び順(番号の割り当て順) ---
+
+    [Fact]
+    public void Sequence_orders_numbers_by_date_keeping_result_order()
+    {
+        var items = new[]
+        {
+            new BulkRenameItem("a.jpg", 0, new DateTime(2026, 1, 3)),
+            new BulkRenameItem("b.jpg", 0, new DateTime(2026, 1, 1)),
+            new BulkRenameItem("c.jpg", 0, new DateTime(2026, 1, 2)),
+        };
+        var opt = new BulkRenameOptions { Mode = BulkRenameMode.Sequence, Template = "#", Order = SequenceOrder.DateAsc };
+        var r = BulkRenamer.Plan(items, opt);
+        // 日付昇順: b=1, c=2, a=3。結果は入力順(a,b,c)で返る。
+        Assert.Equal(new[] { "3.jpg", "1.jpg", "2.jpg" }, Names(r));
+    }
+
+    [Fact]
+    public void Sequence_orders_numbers_by_size_descending()
+    {
+        var items = new[]
+        {
+            new BulkRenameItem("a.jpg", 10),
+            new BulkRenameItem("b.jpg", 30),
+            new BulkRenameItem("c.jpg", 20),
+        };
+        var opt = new BulkRenameOptions { Mode = BulkRenameMode.Sequence, Template = "#", Order = SequenceOrder.SizeDesc };
+        var r = BulkRenamer.Plan(items, opt);
+        // サイズ降順: b=1, c=2, a=3。
+        Assert.Equal(new[] { "3.jpg", "1.jpg", "2.jpg" }, Names(r));
+    }
+
+    [Fact]
+    public void Sequence_orders_numbers_by_name_ascending()
+    {
+        var items = new[]
+        {
+            new BulkRenameItem("b.jpg"),
+            new BulkRenameItem("a.jpg"),
+            new BulkRenameItem("c.jpg"),
+        };
+        var opt = new BulkRenameOptions { Mode = BulkRenameMode.Sequence, Template = "#", Order = SequenceOrder.NameAsc };
+        var r = BulkRenamer.Plan(items, opt);
+        // 名前昇順: a=1, b=2, c=3。結果は入力順(b,a,c)。
+        Assert.Equal(new[] { "2.jpg", "1.jpg", "3.jpg" }, Names(r));
+    }
+
+    [Fact]
+    public void Sequence_current_order_uses_input_order()
+    {
+        var items = new[]
+        {
+            new BulkRenameItem("b.jpg", 0, new DateTime(2026, 1, 9)),
+            new BulkRenameItem("a.jpg", 0, new DateTime(2026, 1, 1)),
+        };
+        var opt = new BulkRenameOptions { Mode = BulkRenameMode.Sequence, Template = "#", Order = SequenceOrder.Current };
+        var r = BulkRenamer.Plan(items, opt);
+        Assert.Equal(new[] { "1.jpg", "2.jpg" }, Names(r));
+    }
 }

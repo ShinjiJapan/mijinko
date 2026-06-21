@@ -76,6 +76,41 @@ public sealed class SessionStoreTests : IDisposable
     }
 
     [Fact]
+    public void SaveThenLoad_RoundTripsViewModeAndGridSize()
+    {
+        var store = new SessionStore(_file);
+        store.Save(new SessionState(
+            new SessionPane(new[] { @"C:\a" }, 0, PaneViewMode.Grid, GridTileSize.Large),
+            new SessionPane(new[] { @"D:\b" }, 0),
+            IsLeftActive: true));
+
+        var loaded = store.Load();
+
+        Assert.Equal(PaneViewMode.Grid, loaded!.Left.ViewMode);
+        Assert.Equal(GridTileSize.Large, loaded.Left.GridSize);
+        // 未指定側は既定(詳細表示・通常サイズ)。
+        Assert.Equal(PaneViewMode.Details, loaded.Right.ViewMode);
+        Assert.Equal(GridTileSize.Normal, loaded.Right.GridSize);
+    }
+
+    [Fact]
+    public void Load_WithoutViewModeFields_DefaultsToDetailsAndNormal()
+    {
+        Directory.CreateDirectory(_dir);
+        // ViewMode/GridSize を持たない旧形式は既定(詳細表示・通常サイズ)で復元する。
+        File.WriteAllText(_file, """
+            {"Left":{"TabPaths":["C:\\a"],"ActiveTabIndex":0},
+             "Right":{"TabPaths":["D:\\b"],"ActiveTabIndex":0},"IsLeftActive":true}
+            """);
+
+        var loaded = new SessionStore(_file).Load();
+
+        Assert.NotNull(loaded);
+        Assert.Equal(PaneViewMode.Details, loaded!.Left.ViewMode);
+        Assert.Equal(GridTileSize.Normal, loaded.Left.GridSize);
+    }
+
+    [Fact]
     public void Load_InvalidJson_ReturnsNull()
     {
         Directory.CreateDirectory(_dir);

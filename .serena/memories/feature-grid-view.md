@@ -25,7 +25,7 @@
   - `[ObservableProperty] PaneViewMode ViewMode`(既定 Details)。`OnViewModeChanged` で `DetailsVisibility`/`GridVisibility` 通知。
   - `DetailsVisibility`/`GridVisibility`(`Visibility`、コンバーター不要)。`ToggleViewMode()`。
   - `[ObservableProperty] GridTileSize GridSize`(既定 Normal)+ `GridTileWidth`/`GridImageSize`/`GridCellWidth`/`GridCellHeight`(`GridTileMetrics` 由来。XAML バインド用)+ `ToggleGridSize()`(=`GridTileMetrics.Next` で 小⇔大 切替)。
-  - **ViewMode/GridSize は Refresh で変更されない**=フォルダー移動・タブ切替後もモード/サイズ維持。**セッション永続化はしない**(再起動で Details/Normal に戻る)。
+  - **ViewMode/GridSize は Refresh で変更されない**=フォルダー移動・タブ切替後もモード/サイズ維持。**セッション保存で永続化**(`SessionPane.ViewMode`/`GridSize`。終了時 `MainViewModel.CaptureSession`→`SessionStore`、起動時 `App.SanitizePane`→`MainViewModel`→`PaneViewModel(reader, tabPaths, activeTabIndex, viewMode, gridSize)` で各ペイン独立に復元。旧 session.json はフィールド省略時の既定 Details/Normal でデシリアライズ=互換)。
 
 ## UI(MainWindow.xaml / .cs)
 - 各ペインの一覧領域を `<Grid>` で包み、**詳細リスト**(既存 `LeftList`/`RightList`、`Visibility={Binding DetailsVisibility}`)と**グリッド**(新 `LeftGrid`/`RightGrid`)を重ね、可視性で切替。

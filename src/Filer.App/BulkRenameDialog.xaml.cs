@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -27,7 +28,7 @@ public partial class BulkRenameDialog : Window
         public bool IsUnchanged => Status == BulkRenameStatus.Unchanged;
     }
 
-    private readonly IReadOnlyList<(string FullPath, string Name)> _targets;
+    private readonly IReadOnlyList<FileEntry> _targets;
     private readonly IReadOnlyCollection<string> _existingNames;
     private bool _ready;
 
@@ -35,16 +36,31 @@ public partial class BulkRenameDialog : Window
     public IReadOnlyList<(string FullPath, string NewName)> Renames { get; private set; } =
         new List<(string, string)>();
 
-    /// <param name="targets">リネーム対象(フルパス + 現在名、表示順)。</param>
+    /// <param name="targets">リネーム対象(フルパス・現在名・サイズ・更新日時、表示順)。</param>
     /// <param name="existingNames">同フォルダー内の対象外ファイル名(衝突判定用)。</param>
     public BulkRenameDialog(
-        IReadOnlyList<(string FullPath, string Name)> targets,
+        IReadOnlyList<FileEntry> targets,
         IReadOnlyCollection<string> existingNames)
     {
         InitializeComponent();
         _targets = targets;
         _existingNames = existingNames;
+        // 番号順の選択肢。並び順は SequenceOrder の宣言順と一致させる(SelectedIndex で対応付け)。
+        OrderBox.ItemsSource = new[]
+        {
+            "表示順(現在のまま)",
+            "名前 昇順",
+            "名前 降順",
+            "更新日時 古い順",
+            "更新日時 新しい順",
+            "サイズ 小さい順",
+            "サイズ 大きい順",
+        };
+        OrderBox.SelectedIndex = 0;
         ModeReplace.IsChecked = true;
+        // 連番の日付トークン例(先頭対象の更新日時で具体例を示す)。
+        var sample = _targets.Count > 0 ? _targets[0].LastModified : DateTime.Now;
+        DateExampleText.Text = $"例: $(yyyyMMddHHmmss) → {sample:yyyyMMddHHmmss}";
         _ready = true;
         FindBox.Focus();
         Refresh();
@@ -66,6 +82,9 @@ public partial class BulkRenameDialog : Window
 
     private void Param_Changed(object sender, RoutedEventArgs e) => Refresh();
 
+    private SequenceOrder SelectedOrder =>
+        OrderBox.SelectedIndex >= 0 ? (SequenceOrder)OrderBox.SelectedIndex : SequenceOrder.Current;
+
     private BulkRenameOptions BuildOptions()
     {
         int.TryParse(StartBox.Text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var start);
@@ -81,14 +100,18 @@ public partial class BulkRenameDialog : Window
             Template = TemplateBox.Text,
             Start = start,
             Step = step,
+            Order = SelectedOrder,
         };
     }
+
+    private BulkRenameItem[] BuildItems() =>
+        _targets.Select(t => new BulkRenameItem(t.Name, t.Size, t.LastModified)).ToArray();
 
     private void Refresh()
     {
         if (!_ready) return;
 
-        var plan = BulkRenamer.Plan(_targets.Select(t => t.Name).ToArray(), BuildOptions(), _existingNames);
+        var plan = BulkRenamer.Plan(BuildItems(), BuildOptions(), _existingNames);
         PreviewList.ItemsSource = plan.Select(p => new Row(p.OriginalName, p.NewName, p.Status)).ToArray();
 
         var ok = plan.Count(p => p.Status == BulkRenameStatus.Ok);
@@ -108,7 +131,7 @@ public partial class BulkRenameDialog : Window
 
     private void Ok_Click(object sender, RoutedEventArgs e)
     {
-        var plan = BulkRenamer.Plan(_targets.Select(t => t.Name).ToArray(), BuildOptions(), _existingNames);
+        var plan = BulkRenamer.Plan(BuildItems(), BuildOptions(), _existingNames);
         var renames = new List<(string FullPath, string NewName)>();
         for (int i = 0; i < plan.Count; i++)
             if (plan[i].Status == BulkRenameStatus.Ok)

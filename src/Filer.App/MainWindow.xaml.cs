@@ -305,7 +305,7 @@ public partial class MainWindow : Window
         string[] files;
         try
         {
-            files = BuildDragFiles(pane);
+            files = Filer.Core.DragFileBuilder.Build(pane.Targets);
         }
         catch (Exception ex)
         {
@@ -317,34 +317,6 @@ public partial class MainWindow : Window
 
         var data = new DataObject(DataFormats.FileDrop, files);
         DragDrop.DoDragDrop(list, data, DragDropEffects.Copy);   // 移動ではなくコピー
-    }
-
-    /// <summary>ドラッグ対象(マーク群 or カーソル項目)の実パス一覧。書庫内項目は一時フォルダーへ抽出する。</summary>
-    private static string[] BuildDragFiles(PaneViewModel pane)
-    {
-        var files = new List<string>();
-        string? tempDir = null;
-        foreach (var entry in pane.Targets)
-        {
-            if (ArchivePath.TrySplit(entry.FullPath, out _, out _))
-            {
-                tempDir ??= CreateDragTempDir();
-                ArchiveExtractor.ExtractTo(entry.FullPath, tempDir);
-                files.Add(Path.Combine(tempDir, entry.Name));
-            }
-            else
-            {
-                files.Add(entry.FullPath);
-            }
-        }
-        return files.ToArray();
-    }
-
-    private static string CreateDragTempDir()
-    {
-        var dir = Path.Combine(Path.GetTempPath(), "Filer", "drag_" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(dir);
-        return dir;
     }
 
     /// <summary>指定要素が ListViewItem の配下か(スクロールバーなどは除外)。</summary>
@@ -756,14 +728,24 @@ public partial class MainWindow : Window
         if (!System.IO.File.Exists(path) && !Filer.Core.ArchivePath.TrySplit(path, out _, out _)) return;
         var kind = Filer.Core.FilePreview.ClassifyByExtension(path);
         if (kind == Filer.Core.PreviewKind.None) return;
+        var editRequested = false;
+        var editFullScreen = false;
         Run(() =>
         {
             // ペイン領域表示は反対側ペインへ重ねる(自身の一覧を見ながらプレビューするため)
             var paneRegion = Vm.IsLeftActive ? RightPane : LeftPane;
-            var window = new PreviewWindow(Vm, paneRegion, KeyMap()) { Owner = this };
+            var window = new PreviewWindow(Vm, paneRegion, KeyMap(), sizePrefs: _previewSizePrefs) { Owner = this };
             window.ShowDialog();
+            editRequested = window.EditRequested;       // プレビュー中に編集キーが押されたか
+            editFullScreen = window.EditAsFullScreen;   // その時のプレビューが全画面だったか
         });
-        FocusActiveList();   // プレビュー内でカーソル移動した場合も選択行へ復帰
+        // 編集が要求されたら、プレビュー中の表示形態・位置を引き継いで編集モードへ
+        // (全画面ならそのまま全画面、ペイン領域ならプレビューと同じ側の1ペインに置く)。
+        // OpenEditor がフォーカスを握るため一覧へは戻さない。
+        if (editRequested)
+            OpenEditor(editFullScreen ? EditorView.FullScreen : EditorView.OnePane, !Vm.IsLeftActive);
+        else
+            FocusActiveList();   // プレビュー内でカーソル移動した場合も選択行へ復帰
     }
 
     /// <summary>
@@ -1132,6 +1114,11 @@ public partial class MainWindow : Window
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "Filer", "folder-compare-prefs.json"));
 
+    /// <summary>プレビューの表示形態(全画面/1ペイン)を種別ごとに記憶し、次回同種別を同じ形態で開く(永続化)。</summary>
+    private readonly PreviewSizePreferenceStore _previewSizePrefs = new(Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "Filer", "preview-size-prefs.json"));
+
     /// <summary>
     /// 新しいタブの作業フォルダー。カーソルがサブフォルダー上ならそのフォルダー、
     /// ファイルや ".." 上なら現在のディレクトリ(書庫内なら書庫のあるフォルダーへフォールバック)。
@@ -1404,7 +1391,13 @@ public partial class MainWindow : Window
     private bool EditorVisible => EditorHost.Visibility == Visibility.Visible;
 
     /// <summary>I: カーソル位置のテキストファイルをアクティブペイン領域で開く。テキスト系以外・書庫内は対象外。</summary>
-    private void OpenEditor()
+    private void OpenEditor() => OpenEditor(EditorView.OnePane, Vm.IsLeftActive);
+
+    /// <summary>
+    /// テキストファイルを編集モードで開く。<paramref name="view"/>(全画面/1ペイン)と <paramref name="onLeft"/>
+    /// (どちら側の列に置くか)で配置を指定する(プレビューから移る際に表示形態・位置を引き継ぐため)。
+    /// </summary>
+    private void OpenEditor(EditorView view, bool onLeft)
     {
         var active = Vm.Active;
         if (!active.HasItems || active.Current.IsParent) return;
@@ -1441,13 +1434,15 @@ public partial class MainWindow : Window
         _editorLoaded = true;
         EditorBox.SyntaxHighlighting = EditorHighlighting.ForPath(path, ThemeManager.CurrentMarkdownColors().IsDark);
 
-        _editorOnLeft = Vm.IsLeftActive;   // アクティブ側に置く(プレビューは逆ペインへ出す)
-        _editorView = EditorView.OnePane;
+        _editorOnLeft = onLeft;            // 既定はアクティブ側(プレビューから移る場合はその表示位置)
+        _editorView = view;
         BuildEditorHelp();
         UpdateEditorHeader();
         ApplyEditorView();
-        EditorBox.Focus();
         EditorBox.CaretOffset = 0;
+        // プレビュー(モーダル)経由で開いた場合、ダイアログ終了後のフォーカス復元が
+        // 同期 Focus() の後に走りフォーカスを奪い返す。確実にエディターへ入るよう遅延して確定する。
+        Dispatcher.BeginInvoke(new Action(() => EditorBox.Focus()), DispatcherPriority.Input);
     }
 
     /// <summary>Esc / 再度の I: エディターを閉じる(内容を保存し、一覧へフォーカスを戻す)。</summary>
@@ -1523,7 +1518,7 @@ public partial class MainWindow : Window
         {
             // エディターはアクティブ側にあるため、プレビューは逆ペイン領域へ重ねる。
             var paneRegion = _editorOnLeft ? RightPane : LeftPane;
-            var window = new PreviewWindow(Vm, paneRegion, KeyMap(), startInPaneRegion: true) { Owner = this };
+            var window = new PreviewWindow(Vm, paneRegion, KeyMap(), startInPaneRegion: true, sizePrefs: _previewSizePrefs) { Owner = this };
             window.ShowDialog();
         });
         EditorBox.Focus();
@@ -2000,7 +1995,6 @@ public partial class MainWindow : Window
     {
         var targets = active.Targets
             .Where(e => !e.IsParent)
-            .Select(e => (e.FullPath, e.Name))
             .ToArray();
         if (targets.Length == 0) return;
 

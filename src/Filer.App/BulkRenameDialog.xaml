@@ -86,7 +86,16 @@
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
                     <TextBlock Grid.Column="0" Text="テンプレート:"/>
-                    <TextBox Grid.Column="1" x:Name="TemplateBox" Text="*_#" TextChanged="Param_Changed"/>
+                    <TextBox Grid.Column="1" x:Name="TemplateBox" Text="#####_$(yyyyMMddHHmmss)" TextChanged="Param_Changed"/>
+                </Grid>
+                <Grid Margin="0,0,0,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="80"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="番号順:"/>
+                    <ComboBox Grid.Column="1" x:Name="OrderBox" Style="{StaticResource DialogComboBox}"
+                              IsReadOnly="True" Height="26" SelectionChanged="Param_Changed"/>
                 </Grid>
                 <StackPanel Orientation="Horizontal" Margin="80,0,0,4">
                     <TextBlock Text="開始:" Margin="0,0,6,0"/>
@@ -96,6 +105,14 @@
                 </StackPanel>
                 <TextBlock Foreground="{DynamicResource Fg.Subtle}" FontSize="11" Margin="80,2,0,0"
                            Text="* = 元の名前(拡張子を除く)、# = 連番(### で3桁ゼロ埋め)"/>
+                <TextBlock Foreground="{DynamicResource Fg.Subtle}" FontSize="11" Margin="80,2,0,0"
+                           TextWrapping="Wrap"
+                           Text="$(書式) = 更新日時(.NET書式) yyyy=年 MM=月 dd=日 HH=時 mm=分 ss=秒"/>
+                <!-- 例文は選択コピーできるよう枠なし読み取り専用 TextBox にする。 -->
+                <TextBox x:Name="DateExampleText" IsReadOnly="True" Cursor="IBeam"
+                         Background="Transparent" BorderThickness="0" Padding="0"
+                         Foreground="{DynamicResource Fg.Subtle}" FontSize="11"
+                         TextWrapping="Wrap" Margin="80,2,0,0"/>
             </StackPanel>
         </Grid>
 

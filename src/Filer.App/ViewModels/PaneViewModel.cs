@@ -103,10 +103,13 @@ public sealed partial class PaneViewModel : ObservableObject
         Refresh();
     }
 
-    /// <summary>複数タブを復元して構築する(セッション復元用)。</summary>
-    public PaneViewModel(IDirectoryReader reader, IReadOnlyList<string> tabPaths, int activeTabIndex)
+    /// <summary>複数タブと一覧表示モード・グリッドサイズを復元して構築する(セッション復元用)。</summary>
+    public PaneViewModel(IDirectoryReader reader, IReadOnlyList<string> tabPaths, int activeTabIndex,
+        PaneViewMode viewMode = PaneViewMode.Details, GridTileSize gridSize = GridTileSize.Normal)
     {
         _tabs = new PaneTabs(reader, tabPaths, activeTabIndex);
+        ViewMode = viewMode;
+        GridSize = gridSize;
         RebuildTabs();
         Refresh();
     }

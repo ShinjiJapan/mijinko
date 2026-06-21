@@ -49,7 +49,15 @@ public static class MarkdownRenderer
     /// Markdown を、指定テーマの CSS と mermaid 初期化を含む完全な HTML 文書へ変換する。
     /// <paramref name="fullscreenGestures"/> は表示切替(全画面⇄ペイン領域)を発火させるキー(設定値)。
     /// </summary>
-    public static string ToHtmlDocument(string markdown, ThemeColors colors, IReadOnlyList<string> fullscreenGestures)
+    public static string ToHtmlDocument(string markdown, ThemeColors colors, IReadOnlyList<string> fullscreenGestures) =>
+        ToHtmlDocument(markdown, colors, fullscreenGestures, Array.Empty<string>());
+
+    /// <summary>
+    /// Markdown を、指定テーマの CSS と mermaid 初期化を含む完全な HTML 文書へ変換する。
+    /// <paramref name="editGestures"/> は編集モードへ移るキー(設定値)。空なら編集キーを発火させない。
+    /// </summary>
+    public static string ToHtmlDocument(string markdown, ThemeColors colors,
+        IReadOnlyList<string> fullscreenGestures, IReadOnlyList<string> editGestures)
     {
         var body = RenderBodyHtml(markdown);
         var sb = new StringBuilder();
@@ -60,7 +68,7 @@ public static class MarkdownRenderer
         sb.Append(body);
         sb.Append("\n</article>\n");
         sb.Append("<script src=\"mermaid.min.js\"></script>\n");
-        sb.Append("<script>\n").Append(BuildScript(colors, fullscreenGestures)).Append("\n</script>\n");
+        sb.Append("<script>\n").Append(BuildScript(colors, fullscreenGestures, editGestures)).Append("\n</script>\n");
         sb.Append("</body>\n</html>\n");
         return sb.ToString();
     }
@@ -181,16 +189,24 @@ ul, ol {{ padding-left: 1.6em; }}
 
     // mermaid を明示描画し、図ごとにズーム/全画面ボタンを配線する。
     // Esc/Enter はホスト(WPF)へ通知して閉じる(全画面中は全画面解除を優先)。
-    private static string BuildScript(ThemeColors c, IReadOnlyList<string> gestures) => $@"
+    private static string BuildScript(ThemeColors c,
+        IReadOnlyList<string> gestures, IReadOnlyList<string> editGestures) => $@"
 mermaid.initialize({{ startOnLoad: false, theme: '{(c.IsDark ? "dark" : "default")}', securityLevel: 'loose' }});"
-        + MermaidZoomScript + KeydownScript(KeyChordJs.MatchExpression(gestures, "e"));
+        + MermaidZoomScript
+        + KeydownScript(KeyChordJs.MatchExpression(gestures, "e"), KeyChordJs.MatchExpression(editGestures, "e"));
 
-    // 表示切替キー(設定値)で cycle-view、S でソース切替、Esc/Enter で閉じる をホストへ通知する。
-    private static string KeydownScript(string toggleExpr) => $@"
+    // 表示切替キー(設定値)で cycle-view、編集キー(設定値)で request-edit、S でソース切替、
+    // Esc/Enter で閉じる をホストへ通知する。
+    private static string KeydownScript(string toggleExpr, string editExpr) => $@"
 document.addEventListener('keydown', function (e) {{
   if ({toggleExpr}) {{   // 表示形態の切替(全画面 ⇄ ペイン領域)をホストへ通知
     e.preventDefault();
     if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage('cycle-view');
+    return;
+  }}
+  if ({editExpr}) {{   // 編集キー: 編集モードへ移るようホストへ通知
+    e.preventDefault();
+    if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage('request-edit');
     return;
   }}
   if (e.key === 's' || e.key === 'S') {{   // S: レンダリング ⇄ ソース表示をホストへ通知

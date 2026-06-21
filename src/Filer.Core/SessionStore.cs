@@ -2,8 +2,12 @@ using System.Text.Json;
 
 namespace Filer.Core;
 
-/// <summary>1ペイン分の保存状態(開いている全タブのパスとアクティブタブ位置)。</summary>
-public sealed record SessionPane(IReadOnlyList<string> TabPaths, int ActiveTabIndex);
+/// <summary>1ペイン分の保存状態(開いている全タブのパス・アクティブタブ位置・一覧表示モード・グリッドのタイルサイズ)。</summary>
+public sealed record SessionPane(
+    IReadOnlyList<string> TabPaths,
+    int ActiveTabIndex,
+    PaneViewMode ViewMode = PaneViewMode.Details,
+    GridTileSize GridSize = GridTileSize.Normal);
 
 /// <summary>前回終了時のウィンドウ位置・サイズ(最大化時は復元用の通常サイズ)。</summary>
 public sealed record WindowBounds(double Left, double Top, double Width, double Height, bool Maximized);

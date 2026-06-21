@@ -26,6 +26,8 @@ public partial class PreviewWindow : Window
     private readonly FrameworkElement _paneRegion;
     // 設定キー割り当て。表示切替・画像操作(コピー/移動/削除/再読込)を設定値どおりに効かせるため使う。
     private readonly KeyBindingMap _keyMap;
+    // プレビュー種別ごとの表示形態(全画面/1ペイン)を記憶する永続ストア。null なら記憶しない。
+    private readonly PreviewSizePreferenceStore? _sizePrefs;
     private PreviewKind _kind;
     private bool _isImage;
     // Markdown/Html を S キーでソース(テキスト)表示に切り替えているか。
@@ -44,9 +46,19 @@ public partial class PreviewWindow : Window
     private PreviewView _view = PreviewView.Maximized;
     // true: 横並び2枚表示(左=カーソル画像/右=次の画像)。1 キーで切り替える。
     private bool _twoUp;
+    // 画像ドラッグ開始の判定用。押下位置としきい値超えでアプリ外へのファイルドラッグを始める。
+    private Point _dragStart;
+    private bool _dragArmed;
+    private FileEntry? _dragEntry;
+
+    /// <summary>編集キー(entry.edit)が押されて閉じたか。呼び出し側はこれを見て編集モードへ移る。</summary>
+    public bool EditRequested { get; private set; }
+
+    /// <summary>編集要求時のプレビューが全画面だったか(編集モードの表示形態を合わせるために使う)。</summary>
+    public bool EditAsFullScreen { get; private set; }
 
     public PreviewWindow(MainViewModel main, FrameworkElement paneRegion, KeyBindingMap keyMap,
-        bool startInPaneRegion = false)
+        bool startInPaneRegion = false, PreviewSizePreferenceStore? sizePrefs = null)
     {
         InitializeComponent();
         // 表示専用(テキストは読み取り専用)。日本語入力 ON でも 表示切替/Esc 等が効くよう IME を無効化する。
@@ -55,12 +67,20 @@ public partial class PreviewWindow : Window
         _pane = main.Active;
         _paneRegion = paneRegion;
         _keyMap = keyMap;
+        _sizePrefs = sizePrefs;
         // Markdown / HTML はソース表示で開く(S キーでレンダリングへ切替)。
         _sourceMode = FilePreview.InitialSourceMode(FilePreview.ClassifyByExtension(_pane.SelectedItemPath));
-        ShowCurrent();
+        ShowCurrent();   // _kind を確定させる
 
-        // 編集中の逆ペインプレビューなど、最初からペイン領域に重ねて開きたい場合(既定は全画面)。
-        if (startInPaneRegion)
+        // 表示中の画像をアプリ外へドラッグ&ドロップ(コピー)できるようにする(一覧と同じ挙動)。
+        ImagePanel.PreviewMouseLeftButtonDown += ImagePanel_PreviewMouseLeftButtonDown;
+        ImagePanel.PreviewMouseMove += ImagePanel_PreviewMouseMove;
+        ImagePanel.PreviewMouseLeftButtonUp += (_, _) => _dragArmed = false;
+
+        // 編集中の逆ペインプレビューは常にペイン領域。それ以外は種別ごとに記憶した表示形態で開く(既定は全画面)。
+        // 既定の全画面は XAML(WindowState=Maximized)に任せ、ペイン領域のときだけ Loaded で配置する。
+        var openInPaneRegion = startInPaneRegion || (_sizePrefs is not null && !_sizePrefs.IsFullScreen(_kind));
+        if (openInPaneRegion)
             Loaded += (_, _) => { _view = PreviewView.PaneRegion; ApplyPreviewView(); };
     }
 
@@ -98,9 +118,11 @@ public partial class PreviewWindow : Window
             LoadText(path);
 
         var name = Path.GetFileName(path);
-        InfoText.Text = _sourceMode && IsToggleable(kind)
-            ? $"{name}  [ソース]"
-            : name;
+        var info = _sourceMode && IsToggleable(kind) ? $"{name}  [ソース]" : name;
+        // 編集可能なテキストは編集キーのヒントを併記する(キーは設定に追従)。
+        if (FilePreview.IsEditable(kind) && _keyMap.GesturesFor("entry.edit").FirstOrDefault() is { } editKey)
+            info += $"   ({editKey}:編集)";
+        InfoText.Text = info;
         Title = $"プレビュー — {name}";
     }
 
@@ -135,6 +157,66 @@ public partial class PreviewWindow : Window
         if (!_twoUp) return;
         var next = NextImageIndex(_pane.SelectedIndex, +1);
         ImageView2.Source = next >= 0 ? LoadBitmap(_pane.Entries[next].Entry.FullPath) : null;
+    }
+
+    /// <summary>画像上で押下したら、ドラッグ対象(押下した側の画像)を記録してドラッグを待機する。</summary>
+    private void ImagePanel_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (!_isImage) return;
+        _dragStart = e.GetPosition(null);
+        _dragEntry = ImageEntryFrom(e.OriginalSource as DependencyObject);
+        _dragArmed = _dragEntry is not null;
+    }
+
+    /// <summary>しきい値を超えて移動したら、表示中の画像をアプリ外へドラッグ(コピー)する。</summary>
+    private void ImagePanel_PreviewMouseMove(object sender, MouseEventArgs e)
+    {
+        if (!_dragArmed || e.LeftButton != MouseButtonState.Pressed) return;
+
+        var pos = e.GetPosition(null);
+        if (Math.Abs(pos.X - _dragStart.X) < SystemParameters.MinimumHorizontalDragDistance &&
+            Math.Abs(pos.Y - _dragStart.Y) < SystemParameters.MinimumVerticalDragDistance)
+            return;
+
+        _dragArmed = false;
+        StartImageDrag(_dragEntry!);
+    }
+
+    /// <summary>押下した視覚要素から、ドラッグ対象の画像エントリを求める。横並び時は左=次の画像/右=カーソル画像。</summary>
+    private FileEntry? ImageEntryFrom(DependencyObject? source)
+    {
+        while (source is not null)
+        {
+            if (ReferenceEquals(source, ImageView2))
+            {
+                var next = NextImageIndex(_pane.SelectedIndex, +1);
+                return next >= 0 ? _pane.Entries[next].Entry : null;
+            }
+            if (ReferenceEquals(source, ImageView))
+                return _pane.Current;
+            source = VisualTreeHelper.GetParent(source);
+        }
+        return null;
+    }
+
+    /// <summary>指定画像をアプリ外へドラッグ(コピー)する。書庫内画像は一時フォルダーへ抽出する。</summary>
+    private void StartImageDrag(FileEntry entry)
+    {
+        string[] files;
+        try
+        {
+            files = DragFileBuilder.Build(new[] { entry });
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "ドラッグの準備に失敗しました",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        if (files.Length == 0) return;
+
+        var data = new DataObject(DataFormats.FileDrop, files);
+        DragDrop.DoDragDrop(ImagePanel, data, DragDropEffects.Copy);   // 移動ではなくコピー
     }
 
     /// <summary>
@@ -237,7 +319,7 @@ public partial class PreviewWindow : Window
         EnsureMermaidScript(previewDir);
         CleanupOldPages(previewDir);
         var html = MarkdownRenderer.ToHtmlDocument(markdown, ThemeManager.CurrentMarkdownColors(),
-            _keyMap.GesturesFor("view.toggleFullscreen"));
+            _keyMap.GesturesFor("view.toggleFullscreen"), EditGestures());
         // 実ファイルは相対画像(上位 ../ も含む)を解決し、必要なルートを仮想ホストへマップする。書庫内は対象外。
         string? docRoot = null;
         if (!ArchivePath.TrySplit(path, out _, out _) && Path.GetDirectoryName(path) is { } mdDir)
@@ -280,7 +362,7 @@ public partial class PreviewWindow : Window
         var pageName = $"page-{Guid.NewGuid():N}.html";
         File.WriteAllText(Path.Combine(previewDir, pageName),
             CodeRenderer.ToHtmlDocument(code, CodeRenderer.LanguageId(path), ThemeManager.CurrentMarkdownColors(),
-                _keyMap.GesturesFor("view.toggleFullscreen")));
+                _keyMap.GesturesFor("view.toggleFullscreen"), EditGestures()));
 
         try
         {
@@ -439,8 +521,23 @@ public partial class PreviewWindow : Window
             case "close": Dispatcher.Invoke(Close); break;
             case "cycle-view": Dispatcher.Invoke(CyclePreviewView); break;
             case "toggle-source": Dispatcher.Invoke(ToggleSource); break;
+            case "request-edit": Dispatcher.Invoke(RequestEdit); break;
         }
     }
+
+    /// <summary>編集キー(レンダリング表示中は HTML 側 JS から通知)で編集モードへ移る。閉じて呼び出し側に委ねる。
+    /// 現在のプレビュー表示形態(全画面/ペイン領域)を引き継げるよう記録する。</summary>
+    private void RequestEdit()
+    {
+        if (!FilePreview.IsEditable(_kind)) return;
+        EditRequested = true;
+        EditAsFullScreen = _view == PreviewView.Maximized;
+        Close();
+    }
+
+    /// <summary>編集可能なら編集キー(entry.edit)のジェスチャ、編集不可なら空(HTML 側で編集キーを発火させない)。</summary>
+    private IReadOnlyList<string> EditGestures() =>
+        FilePreview.IsEditable(_kind) ? _keyMap.GesturesFor("entry.edit") : Array.Empty<string>();
 
     /// <summary>レンダリング ⇄ ソース表示を切り替える(S キー)。</summary>
     private void ToggleSource()
@@ -604,6 +701,9 @@ public partial class PreviewWindow : Window
             case "view.toggleFullscreen":
                 CyclePreviewView();
                 return true;
+            case "entry.edit" when FilePreview.IsEditable(_kind):   // 編集キー: 閉じて編集モードへ
+                RequestEdit();
+                return true;
             case "file.copy" when _isImage:        // コピー(確認なし)
                 CopyToOther();
                 return true;
@@ -627,6 +727,8 @@ public partial class PreviewWindow : Window
     {
         _view = _view == PreviewView.Maximized ? PreviewView.PaneRegion : PreviewView.Maximized;
         ApplyPreviewView();
+        // 反映後の実際の表示形態(ペイン領域が取れず全画面へ戻った場合も含む)を種別ごとに記憶する。
+        _sizePrefs?.Set(_kind, _view == PreviewView.Maximized);
     }
 
     /// <summary>現在の表示形態をウィンドウ配置へ反映する。</summary>

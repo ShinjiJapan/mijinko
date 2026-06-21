@@ -39,8 +39,8 @@ public sealed partial class MainViewModel : ObservableObject
         Settings = _settingsStore.Load();
         var reader = new SearchResultsReader(new ArchiveAwareReader(new DirectoryLister()));
         _searchResults = reader;
-        Left = new PaneViewModel(reader, left.TabPaths, left.ActiveTabIndex);
-        Right = new PaneViewModel(reader, right.TabPaths, right.ActiveTabIndex);
+        Left = new PaneViewModel(reader, left.TabPaths, left.ActiveTabIndex, left.ViewMode, left.GridSize);
+        Right = new PaneViewModel(reader, right.TabPaths, right.ActiveTabIndex, right.ViewMode, right.GridSize);
 
         IsLeftActive = isLeftActive;
         Left.IsActive = isLeftActive;
@@ -59,8 +59,8 @@ public sealed partial class MainViewModel : ObservableObject
 
     /// <summary>現在の2ペイン状態を取得する(終了時のセッション保存用)。ウィンドウ位置は呼び出し側(UI)が渡す。</summary>
     public SessionState CaptureSession(WindowBounds? window = null) =>
-        new(new SessionPane(Left.TabPaths, Left.ActiveTabIndex),
-            new SessionPane(Right.TabPaths, Right.ActiveTabIndex),
+        new(new SessionPane(Left.TabPaths, Left.ActiveTabIndex, Left.ViewMode, Left.GridSize),
+            new SessionPane(Right.TabPaths, Right.ActiveTabIndex, Right.ViewMode, Right.GridSize),
             IsLeftActive,
             window);
 
