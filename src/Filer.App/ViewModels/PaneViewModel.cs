@@ -238,6 +238,15 @@ public sealed partial class PaneViewModel : ObservableObject
         SelectedIndex = _state.CursorIndex;
     }
 
+    /// <summary>anchorIndex から targetIndex までを範囲マークし、カーソルを targetIndex へ移す。Shift+クリック用。</summary>
+    public void MarkRangeTo(int anchorIndex, int targetIndex)
+    {
+        _state.MarkRange(anchorIndex, targetIndex);
+        SyncMarks();
+        _state.MoveCursorTo(targetIndex);
+        SelectedIndex = _state.CursorIndex;
+    }
+
     /// <summary>全選択 ⇔ 全選択解除を切り替える。</summary>
     public void ToggleMarkAll()
     {

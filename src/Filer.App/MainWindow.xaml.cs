@@ -281,8 +281,32 @@ public partial class MainWindow : Window
     /// <summary>行の上で押下したらドラッグ開始候補とする(ヘッダー/スクロールバー上は除外)。</summary>
     private void List_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
+        // Shift+クリック: アンカー(現在のカーソル位置)からクリック行までを範囲マークする。
+        if ((Keyboard.Modifiers & ModifierKeys.Shift) == ModifierKeys.Shift &&
+            sender is ListView list &&
+            ItemIndexFromEvent(list, e.OriginalSource as DependencyObject) is var target and >= 0)
+        {
+            var isLeft = (string?)list.Tag == "Left";
+            ActivatePane(isLeft);
+            var pane = isLeft ? Vm.Left : Vm.Right;
+            pane.MarkRangeTo(pane.SelectedIndex, target);
+            e.Handled = true;   // ネイティブの選択変更は抑止(カーソルは MarkRangeTo で設定済み)
+            return;
+        }
+
         _dragArmed = IsOverItem(e.OriginalSource as DependencyObject);
         _dragStart = e.GetPosition(null);
+    }
+
+    /// <summary>クリックされた要素が属する行のインデックス(行外・スクロールバー上は -1)。</summary>
+    private static int ItemIndexFromEvent(ListView list, DependencyObject? source)
+    {
+        while (source is not null and not ListViewItem)
+        {
+            if (source is System.Windows.Controls.Primitives.ScrollBar) return -1;
+            source = VisualTreeHelper.GetParent(source);
+        }
+        return source is ListViewItem item ? list.ItemContainerGenerator.IndexFromContainer(item) : -1;
     }
 
     /// <summary>しきい値を超えて移動したらアプリ外へのファイルドラッグ(コピー)を開始する。</summary>
@@ -543,7 +567,7 @@ public partial class MainWindow : Window
         ["cursor.pageDown"] = () => { if (ActiveIsGrid) GridMovePage(1); else { Vm.Active.MoveCursor(PageStep()); ScrollActiveIntoView(); } },
         ["cursor.bottom"] = () => { Vm.Active.MoveToBottom(); ScrollActiveIntoView(); },
         ["mark.toggleAll"] = () => Vm.Active.ToggleMarkAll(),     // 全選択 ⇔ 全選択解除
-        ["mark.toggle"] = () => Vm.Active.ToggleMarkAndAdvance(),
+        ["mark.toggle"] = () => { Vm.Active.ToggleMarkAndAdvance(); ScrollActiveIntoView(); },
 
         // Tab: 相手側の領域へ切替。メモ/ターミナルが覆っていればそちらへ(裏ペインへは移らない)。
         ["pane.switchOrTerminal"] = () => FocusPaneSide(!Vm.IsLeftActive),

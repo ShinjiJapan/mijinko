@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using Microsoft.Web.WebView2.Core;
 using Filer.App.ViewModels;
 using Filer.Core;
@@ -50,6 +51,14 @@ public partial class PreviewWindow : Window
     private Point _dragStart;
     private bool _dragArmed;
     private FileEntry? _dragEntry;
+    // 画像表示中、無操作が続いたらマウスカーソルを隠す。マウス移動で再表示し再カウントする。
+    private readonly DispatcherTimer _cursorHideTimer;
+    // 原寸画像(縮小元)。表示領域サイズに合わせて段階縮小したものを Image へ渡す(スクリーントーンのモアレ対策)。
+    private BitmapSource? _originalLeft;
+    private BitmapSource? _originalRight;
+    // 直近に適用した縮小段数(-1=未適用/原寸入替時にリセット)。表示寸が段差をまたがない間は作り直さない。
+    private int _stepsLeft = -1;
+    private int _stepsRight = -1;
 
     /// <summary>編集キー(entry.edit)が押されて閉じたか。呼び出し側はこれを見て編集モードへ移る。</summary>
     public bool EditRequested { get; private set; }
@@ -76,12 +85,25 @@ public partial class PreviewWindow : Window
         ImagePanel.PreviewMouseLeftButtonDown += ImagePanel_PreviewMouseLeftButtonDown;
         ImagePanel.PreviewMouseMove += ImagePanel_PreviewMouseMove;
         ImagePanel.PreviewMouseLeftButtonUp += (_, _) => _dragArmed = false;
+        // 表示領域サイズが変わったら(全画面⇄ペイン、ウィンドウ最大化アニメ等)縮小段数を見直す。
+        ImagePanel.SizeChanged += (_, _) => ApplyScaledImages();
+
+        // 画像表示中は無操作が続いたらカーソルを隠す(マウス移動で再表示)。画像以外では作動させない。
+        _cursorHideTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
+        _cursorHideTimer.Tick += (_, _) => HideCursor();
+        if (_isImage)
+        {
+            MouseMove += (_, _) => OnImageMouseActivity();
+            _cursorHideTimer.Start();
+        }
+        Closed += (_, _) => _cursorHideTimer.Stop();
 
         // 編集中の逆ペインプレビューは常にペイン領域。それ以外は種別ごとに記憶した表示形態で開く(既定は全画面)。
-        // 既定の全画面は XAML(WindowState=Maximized)に任せ、ペイン領域のときだけ Loaded で配置する。
-        var openInPaneRegion = startInPaneRegion || (_sizePrefs is not null && !_sizePrefs.IsFullScreen(_kind));
-        if (openInPaneRegion)
-            Loaded += (_, _) => { _view = PreviewView.PaneRegion; ApplyPreviewView(); };
+        _view = startInPaneRegion || (_sizePrefs is not null && !_sizePrefs.IsFullScreen(_kind))
+            ? PreviewView.PaneRegion : PreviewView.Maximized;
+        // 全画面・ペイン領域とも、フィラーと同じモニター上へ Loaded 後に配置する
+        // (全画面を XAML 任せにするとプライマリーモニターで最大化され、サブモニター利用時に別画面へ飛ぶ)。
+        Loaded += (_, _) => ApplyPreviewView();
     }
 
     /// <summary>ペインのカーソル位置の項目を、種別に応じて表示する。</summary>
@@ -127,7 +149,7 @@ public partial class PreviewWindow : Window
     }
 
     /// <summary>パス(実ファイル/書庫内)から凍結済みビットマップを読み込む。</summary>
-    private static ImageSource LoadBitmap(string path)
+    private static BitmapSource LoadBitmap(string path)
     {
         var bitmap = new BitmapImage();
         bitmap.BeginInit();
@@ -144,19 +166,86 @@ public partial class PreviewWindow : Window
     /// <summary>左(カーソル)の画像を表示する。横並び時は右の2枚目も更新する。</summary>
     private void LoadImage(string path)
     {
-        ImageView.Source = LoadBitmap(path);
+        _originalLeft = LoadBitmap(path);
+        _stepsLeft = -1;   // 原寸が入れ替わったので段数キャッシュを無効化
         ImagePanel.Visibility = Visibility.Visible;
         TextView.Visibility = Visibility.Collapsed;
         MarkdownView.Visibility = Visibility.Collapsed;
         UpdateSecondImage();
+        ApplyScaledImages();
     }
 
-    /// <summary>横並び表示中、カーソルの次の画像を右に表示する(無ければ空)。</summary>
+    /// <summary>横並び表示中、カーソルの次の画像の原寸を保持する(無ければ空)。割り当ては ApplyScaledImages が行う。</summary>
     private void UpdateSecondImage()
     {
-        if (!_twoUp) return;
+        _stepsRight = -1;   // 原寸が入れ替わったので段数キャッシュを無効化
+        if (!_twoUp) { _originalRight = null; return; }
         var next = NextImageIndex(_pane.SelectedIndex, +1);
-        ImageView2.Source = next >= 0 ? LoadBitmap(_pane.Entries[next].Entry.FullPath) : null;
+        _originalRight = next >= 0 ? LoadBitmap(_pane.Entries[next].Entry.FullPath) : null;
+    }
+
+    /// <summary>
+    /// 原寸画像を表示領域サイズ(Uniform 後の実表示寸・DPI 考慮)に合わせて段階縮小し、Image へ割り当てる。
+    /// 表示寸付近まで 2:1 の面積平均で縮めてから端数を高品質補間(Fant)に委ねることで、網点のモアレを抑える。
+    /// </summary>
+    private void ApplyScaledImages()
+    {
+        var w = ImagePanel.ActualWidth;
+        var h = ImagePanel.ActualHeight;
+        if (w <= 0 || h <= 0)   // レイアウト未確定。原寸のまま渡し、SizeChanged 後に縮小し直す。
+        {
+            ImageView.Source = _originalLeft;
+            ImageView2.Source = _originalRight;
+            _stepsLeft = _stepsRight = -1;
+            return;
+        }
+        var dpi = VisualTreeHelper.GetDpi(this).DpiScaleX;
+        // 横並び時は各画像が領域の半分の幅に収まる。デバイス px へ換算して縮小先寸とする。
+        var availW = (_twoUp ? w / 2 : w) * dpi;
+        var availH = h * dpi;
+        ImageView.Source = Downscaled(_originalLeft, availW, availH, ref _stepsLeft, ImageView.Source);
+        ImageView2.Source = Downscaled(_originalRight, availW, availH, ref _stepsRight, ImageView2.Source);
+    }
+
+    /// <summary>
+    /// 原寸 <paramref name="src"/> を、Stretch=Uniform での実表示寸まで 1/2 ずつ段階縮小して返す。
+    /// 段数が前回と同じ(表示寸が段差をまたいでいない)なら作り直さず <paramref name="current"/> を保つ。
+    /// 表示領域より小さい画像は縮小しない(拡大表示)。
+    /// </summary>
+    private static ImageSource? Downscaled(BitmapSource? src, double availW, double availH,
+        ref int lastSteps, ImageSource? current)
+    {
+        if (src is null) { lastSteps = -1; return null; }
+        var scale = Math.Min(availW / src.PixelWidth, availH / src.PixelHeight);
+        var steps = scale >= 1.0
+            ? 0
+            : ImageDownscale.HalvingSteps(src.PixelWidth, src.PixelHeight,
+                src.PixelWidth * scale, src.PixelHeight * scale);
+        if (steps == lastSteps && current is not null) return current;
+        lastSteps = steps;
+        var result = (BitmapSource)src;
+        for (var i = 0; i < steps; i++)
+        {
+            var halved = new TransformedBitmap(result, new ScaleTransform(0.5, 0.5));
+            halved.Freeze();
+            result = halved;
+        }
+        return result;
+    }
+
+    /// <summary>マウス操作があったらカーソルを再表示し、無操作タイマーを巻き戻す。</summary>
+    private void OnImageMouseActivity()
+    {
+        if (Cursor == Cursors.None) Cursor = null;   // 既定(矢印)へ戻す
+        _cursorHideTimer.Stop();
+        _cursorHideTimer.Start();
+    }
+
+    /// <summary>無操作が続いたらカーソルを隠す。次のマウス移動まで隠し続ける。</summary>
+    private void HideCursor()
+    {
+        Cursor = Cursors.None;
+        _cursorHideTimer.Stop();   // 隠した後は移動があるまで再計測しない
     }
 
     /// <summary>画像上で押下したら、ドラッグ対象(押下した側の画像)を記録してドラッグを待機する。</summary>
@@ -656,6 +745,7 @@ public partial class PreviewWindow : Window
             ImageView.HorizontalAlignment = HorizontalAlignment.Stretch; // 1枚は中央表示へ戻す
         }
         UpdateSecondImage();
+        ApplyScaledImages();   // 1枚⇄2枚で各画像の表示幅が変わるため縮小段数を見直す
         SetImageInfo(_pane.Current.Name);
     }
 
@@ -738,7 +828,12 @@ public partial class PreviewWindow : Window
         {
             case PreviewView.Maximized:
                 WindowState = WindowState.Normal;
-                Left = 0; Top = 0;
+                // フィラー(オーナー)と同じモニター上で全画面化する。Left=0;Top=0 だと常にプライマリー
+                // モニターで最大化され、サブモニター利用時にプレビューだけ別画面へ飛ぶため、ペイン領域
+                // (= フィラーのあるモニターのスクリーン座標)を起点にする。取得不可ならオーナー位置で代替。
+                var anchor = GetPaneRegionRect();
+                Left = anchor?.X ?? Owner?.Left ?? 0;
+                Top = anchor?.Y ?? Owner?.Top ?? 0;
                 WindowState = WindowState.Maximized;
                 break;
 

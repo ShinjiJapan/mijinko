@@ -1,0 +1,8 @@
+ ドライブ C のボリューム ラベルがありません。
+ ボリューム シリアル番号は F6A1-581B です
+
+ C:\toolz\StableDiffusion\stable-diffusion-webui\venv\Scripts のディレクトリ
+
+2025/07/22  00:08           270,616 python.exe
+               1 個のファイル             270,616 バイト
+               0 個のディレクトリ  286,755,835,904 バイトの空き領域

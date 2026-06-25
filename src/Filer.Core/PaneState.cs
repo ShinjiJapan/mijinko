@@ -153,6 +153,20 @@ public sealed class PaneState
             _marked.Add(current.FullPath);
     }
 
+    /// <summary>fromIndex から toIndex までの範囲(両端含む)をマークする(親 ".." は対象外)。Shift+クリックの範囲選択用。</summary>
+    public void MarkRange(int fromIndex, int toIndex)
+    {
+        if (!HasItems) return;
+        var lo = Math.Clamp(Math.Min(fromIndex, toIndex), 0, Entries.Count - 1);
+        var hi = Math.Clamp(Math.Max(fromIndex, toIndex), 0, Entries.Count - 1);
+        for (var i = lo; i <= hi; i++)
+        {
+            var entry = Entries[i];
+            if (entry.IsParent) continue;
+            _marked.Add(entry.FullPath);
+        }
+    }
+
     /// <summary>任意の絶対パスへ移動する。カーソルは先頭に置く。</summary>
     public void NavigateTo(string path) => Load(path, cursorOnName: null);
 

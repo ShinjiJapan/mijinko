@@ -1,5 +1,11 @@
 # 既知の不具合と修正履歴
 
+## [修正済] 全画面プレビューがサブモニター利用時に別画面(プライマリー)へ飛ぶ(2026-06)
+- **症状**: ファイラーをサブモニターで使うと画像/Markdownの全画面プレビューだけプライマリーモニターに表示される。F2(`view.toggleFullscreen`)で「ファイラー上に1ペイン表示 ⇄ 別画面で全画面」となり、体感は非表示/表示の切替に見えた。
+- **根本原因**: `PreviewWindow.ApplyPreviewView`の全画面化が `Left=0;Top=0`(プライマリー原点)を起点に最大化していたため、常にプライマリーモニターで全画面化していた。さらに既定の全画面はXAML(`WindowState=Maximized`)任せでオーナーのモニターを考慮していなかった。
+- **修正**: 全画面化の起点をペイン領域のスクリーン座標(=フィラーのあるモニター。取得不可ならオーナー位置)にした。コンストラクターで `_view` を決め `Loaded` で常に `ApplyPreviewView()` を通し、全画面・1ペインともフィラーと同じモニターへ配置。
+- **修正ファイル**: `src/Filer.App/PreviewWindow.xaml.cs`(`ApplyPreviewView` / コンストラクター)。
+
 ## [修正済] 大量ファイルのフォルダを開くとキー操作可能まで長時間待たされる(2026-06)
 - **症状**: G:\oldPhoto(7,131ファイル)等を開くとUIが数秒〜長時間固まる。フォルダ列挙自体は29msで、I/Oは無関係。
 - **根本原因**: `PaneViewModel.Refresh`がバインド済みListViewの`ObservableCollection`へ1件ずつ`Add`し、件数分のCollectionChanged通知をUIスレッドが逐次処理していた(検索結果一覧で既に解決済みだったのと同じ問題)。さらに1件Addごとに`RefreshColumns`がLoadedキューへ積まれ二重に重かった。
@@ -34,6 +40,21 @@
 - **調査手法**: `FILER_KEYLOG` でアクション発火を確認(正常)→ 新規Code.exeプロセスが立たないことを高頻度ポーリングで確認 → 同等の `Process.Start(Code.exe,"<path>",UseShellExecute=false)` をPowerShellで再現し `Cannot find module` を観測 → `$env:ELECTRON_RUN_AS_NODE=1` を確認。
 - **修正(根治)**: `Filer.Core.ChildProcessEnvironment.Scrub(IDictionary)` を新設し、子プロセス起動前に `ELECTRON_RUN_AS_NODE` を除去。`ExternalToolLauncher` の `UseShellExecute=false` 経路で `psi.Environment` に適用。`UseShellExecute=true`(PATH解決フォールバック)経路はEnvironment編集不可のため非適用だが、Code.exeは既知の場所解決で false 経路を通る。
 - **テスト**: `ChildProcessEnvironmentTests`(除去/無関係変数保持)2件。実機E2E: `ELECTRON_RUN_AS_NODE=1` 環境で publish 起動→V→新規Code.exe 9プロセス起動を確認(修正前0)。
+
+## [修正済] Shift+Enter(関連付け起動)で .bat 等が作業ディレクトリ違いで失敗(2026-06)
+- **症状**: `C:\toolz\StableDiffusion\stable-diffusion-webui\w.bat` を Filer の Shift+Enter で実行すると `can't open file 'C:\proj\vsc\mijinko-filer\publish\launch.py': No such file or directory` 等で失敗。エクスプローラーのダブルクリックでは正常。
+- **根本原因**: `MainViewModel.OpenSelectedWithAssociation`(Shift+Enter=`entry.openWith`)が `Process.Start(new ProcessStartInfo(path){UseShellExecute=true})` で **`WorkingDirectory` 未指定**。このため起動された `w.bat` が **Filer.App プロセスの現在ディレクトリ(単一exeが動く `publish` フォルダー)を引き継ぐ**。bat内が相対パスで `launch.py` を参照していたため `publish\launch.py` を探して失敗。エクスプローラーは対象ファイルのフォルダーを作業ディレクトリに設定するため再現しない。
+- **修正**: `WorkingDirectory = Path.GetDirectoryName(path) ?? string.Empty` を設定し、エクスプローラーのダブルクリックと同じく対象ファイルのあるフォルダーを作業ディレクトリにする。
+- **修正ファイル**: `src/Filer.App/ViewModels/MainViewModel.cs`(`OpenSelectedWithAssociation`)。
+
+## [修正済] 画像プレビューの縮小でスクリーントーンにモアレ(干渉縞)が出る(2026-06)
+- **症状**: 大きめの画像を全画面プレビューで縮小表示すると、網点(スクリーントーン)が干渉縞になる。
+- **根本原因**: `PreviewWindow` が原寸 `BitmapImage` をそのまま `<Image Stretch="Uniform"/>` に渡し、縮小をWPF既定の描画時補間(2×2近傍の線形補間=実質間引き)任せにしていた。縮小前のローパス(面積平均)が無いため、網点の周期と間引きが干渉してモアレが出る。
+- **修正(案C=A+B)**:
+  - 案A: `ImageView`/`ImageView2` に `RenderOptions.BitmapScalingMode="HighQuality"`(Fant)を指定。
+  - 案B: 原寸を保持し、Uniform後の実表示寸(DPI考慮)付近まで `TransformedBitmap`(`ScaleTransform(0.5,0.5)`)で**段階的に1/2縮小**(=ミップマップ的な面積平均)してから Image へ渡す。段数は `Filer.Core.ImageDownscale.HalvingSteps` で算出。`ImagePanel.SizeChanged` で表示寸変化(全画面⇄ペイン/最大化アニメ/1枚⇄2枚)に追従し、段差をまたがない間は作り直さない。
+- **修正ファイル**: `src/Filer.App/PreviewWindow.xaml`(両Imageに BitmapScalingMode)、`src/Filer.App/PreviewWindow.xaml.cs`(`LoadBitmap`戻り型→BitmapSource、原寸キャッシュ、`ApplyScaledImages`/`Downscaled`、SizeChanged購読)、`src/Filer.Core/ImageDownscale.cs`(新規)。
+- **テスト**: `ImageDownscaleTests`(段数算出)5件。
 
 ## [未対応・要検討] Hidden+System ファイルを既定で表示
 - `DirectoryLister` が隠し/システム属性も列挙するため互換ジャンクション等が一覧に出る。Explorer同様、既定非表示+トグル表示が望ましい(silent除外はしない方針)。

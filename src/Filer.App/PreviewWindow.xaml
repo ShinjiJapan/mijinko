@@ -27,8 +27,10 @@
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
             <Image Grid.Column="0" x:Name="ImageView2" Stretch="Uniform"
+                   RenderOptions.BitmapScalingMode="HighQuality"
                    HorizontalAlignment="Right" Visibility="Collapsed"/>
-            <Image Grid.Column="1" x:Name="ImageView" Stretch="Uniform"/>
+            <Image Grid.Column="1" x:Name="ImageView" Stretch="Uniform"
+                   RenderOptions.BitmapScalingMode="HighQuality"/>
         </Grid>
 
         <!-- テキストプレビュー: 読み取り専用・等幅・右端で折り返し -->

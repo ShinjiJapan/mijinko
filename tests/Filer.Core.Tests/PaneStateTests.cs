@@ -194,6 +194,28 @@ public class PaneStateTests
     }
 
     [Fact]
+    public void MarkRange_MarksInclusiveRange_IgnoresParentEntry()
+    {
+        var pane = new PaneState(BuildTree(), @"C:\work");
+
+        // 一覧は "..", "sub", "a.txt", "b.txt"。0(..)〜3 を範囲指定しても ".." は除外。
+        pane.MarkRange(0, 3);
+        Assert.Equal(new[] { "a.txt", "b.txt", "sub" },
+            pane.MarkedEntries.Select(e => e.Name).OrderBy(n => n).ToArray());
+    }
+
+    [Fact]
+    public void MarkRange_AcceptsReversedBounds_AndClamps()
+    {
+        var pane = new PaneState(BuildTree(), @"C:\work");
+
+        // 端を逆順・範囲外で渡しても 2〜3 をマークする。
+        pane.MarkRange(99, 2);
+        Assert.Equal(new[] { "a.txt", "b.txt" },
+            pane.MarkedEntries.Select(e => e.Name).OrderBy(n => n).ToArray());
+    }
+
+    [Fact]
     public void ItemCount_ExcludesParentEntry()
     {
         var pane = new PaneState(BuildTree(), @"C:\work");

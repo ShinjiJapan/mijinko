@@ -82,7 +82,7 @@ public sealed partial class MainViewModel : ObservableObject
             var p = Active;
             // 件数は表示用コレクション(2段階表示で一時的に部分集合)ではなくモデルの全件数を使う。
             var pos = p.EntryCount == 0 ? 0 : p.SelectedIndex + 1;
-            return $"Filer — {p.CurrentPath}  [{pos}/{p.EntryCount}]";
+            return $"みじんこFiler — {p.CurrentPath}  [{pos}/{p.EntryCount}]";
         }
     }
 
@@ -374,7 +374,11 @@ public sealed partial class MainViewModel : ObservableObject
     {
         var path = Active.SelectedItemPath;
         EnsureNotInsideArchive(path, "書庫内のファイル(関連付け起動)");
-        Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+        Process.Start(new ProcessStartInfo(path)
+        {
+            UseShellExecute = true,
+            WorkingDirectory = Path.GetDirectoryName(path) ?? string.Empty,
+        });
     }
 
     /// <summary>指定 Id の外部ツールを起動する。引数テンプレートは現在のペイン状態で展開する。</summary>
