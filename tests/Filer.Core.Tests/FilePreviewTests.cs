@@ -154,4 +154,56 @@ public sealed class FilePreviewTests
     {
         Assert.False(FilePreview.HasRenderedPreview(kind));
     }
+
+    // ソース表示中の Markdown/Html は編集キーと「プレビューへ切替」キーを併記する。
+    [Theory]
+    [InlineData(PreviewKind.Markdown)]
+    [InlineData(PreviewKind.Html)]
+    public void PreviewKeyHints_SourceMode_ShowsEditAndPreviewToggle(PreviewKind kind)
+    {
+        var hints = FilePreview.PreviewKeyHints(kind, sourceMode: true, editKey: "I", toggleKey: "S");
+        Assert.Equal("   (I:編集)   (S:プレビュー)", hints);
+    }
+
+    // レンダリング表示中の Markdown/Html は「ソースへ切替」キーを示す。
+    [Theory]
+    [InlineData(PreviewKind.Markdown)]
+    [InlineData(PreviewKind.Html)]
+    public void PreviewKeyHints_RenderedMode_ShowsSourceToggle(PreviewKind kind)
+    {
+        var hints = FilePreview.PreviewKeyHints(kind, sourceMode: false, editKey: "I", toggleKey: "S");
+        Assert.Equal("   (I:編集)   (S:ソース)", hints);
+    }
+
+    // Code はレンダリング(ハイライト)を初期表示。編集キーと「ソースへ切替」キーを示す。
+    [Fact]
+    public void PreviewKeyHints_Code_ShowsEditAndToggle()
+    {
+        var hints = FilePreview.PreviewKeyHints(PreviewKind.Code, sourceMode: false, editKey: "I", toggleKey: "S");
+        Assert.Equal("   (I:編集)   (S:ソース)", hints);
+    }
+
+    // プレーンテキストは編集キーのみ(切替対象でない)。
+    [Fact]
+    public void PreviewKeyHints_Text_ShowsEditOnly()
+    {
+        var hints = FilePreview.PreviewKeyHints(PreviewKind.Text, sourceMode: false, editKey: "I", toggleKey: "S");
+        Assert.Equal("   (I:編集)", hints);
+    }
+
+    // 編集不可かつ切替不可(画像など)はヒント無し。
+    [Fact]
+    public void PreviewKeyHints_Image_ReturnsEmpty()
+    {
+        var hints = FilePreview.PreviewKeyHints(PreviewKind.Image, sourceMode: false, editKey: "I", toggleKey: "S");
+        Assert.Equal("", hints);
+    }
+
+    // 編集キー未割当でも切替キーは示す。
+    [Fact]
+    public void PreviewKeyHints_NoEditKey_ShowsToggleOnly()
+    {
+        var hints = FilePreview.PreviewKeyHints(PreviewKind.Markdown, sourceMode: true, editKey: null, toggleKey: "S");
+        Assert.Equal("   (S:プレビュー)", hints);
+    }
 }

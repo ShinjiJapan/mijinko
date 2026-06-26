@@ -9,10 +9,10 @@
 
 ## 引数マクロ(だいなファイラー風・`src/Filer.Core/ToolMacros.cs`)
 `ToolMacroExpander.Expand(template, ToolMacroContext)` → 展開文字列(`$MO` が空でキャンセルされたら null)。`ExpandToSinglePath` はストアアプリ用に最初の1パス抽出。
-- 単一値(そのまま挿入・引用は利用者がテンプレに書く): `$F`名前 / `$W`拡張子除く名前 / `$E`拡張子 / `$P`自窓パス / `$O`他窓 / `$L`左窓 / `$R`右窓(末尾`\`なし)。
+- 単一値(そのまま挿入・引用は利用者がテンプレに書く): `$F`名前 / `$W`拡張子除く名前 / `$E`拡張子 / `$P`自窓パス / `$C`カーソルのフォルダー(カーソルが実フォルダーならそのパス、それ以外=ファイル/".."は自窓パス) / `$O`他窓 / `$L`左窓 / `$R`右窓(末尾`\`なし)。`$C`の解決は `ToolMacroExpander.ResolveCursorDir(isDir,isParent,cursorFullPath,paneDir)`(Core・テスト済)。**既定の Windows Terminal(G)/Git Bash(B) は `$C` を使う**(引数は必ずディレクトリのため。`-d "$C"` / `--cd="$C"`。フォルダー上でG/Bを押すとそのフォルダーで開く)。
 - 複数値(各項目を`"`で囲み空白連結): `$MS`マーク名一覧 / `$MF`マークのフルパス一覧(共にマーク無→カーソル1つ) / `$MO`他方マークのフルパス(**無ければコマンド自体キャンセル=null**) / `$mO`同(無ければ空文字)。`$$`=リテラル`$`。未知`$X`はそのまま。
-- 2文字マクロ判定は1文字マクロより先。境界 `i+2 < length` でOK(末尾の3文字マクロも拾える。テスト済)。`ToolMacroExpanderTests` 13件。
-- `ToolMacroContext` は MainViewModel.BuildMacroContext が構築: `$F`はカーソル名(".."は空)、`$MS/$MF`は `pane.Targets`(MarkedOrCurrent)→空(カーソル".."時)はフォルダー名/現在フォルダーにfallback、`$MO/$mO`は他方ペインの `pane.Marked`(=PaneState.MarkedEntries、マークのみ・fallbackなし)。`$P`等は `TrimDir`(末尾\除去)。
+- 2文字マクロ判定は1文字マクロより先。境界 `i+2 < length` でOK(末尾の3文字マクロも拾える。テスト済)。`ToolMacroExpanderTests` 23件。
+- `ToolMacroContext` は MainViewModel.BuildMacroContext が構築: `$F`はカーソル名(".."は空)、`$C`は `ResolveCursorDir(cursor.IsDirectory, cursor.IsParent, cursor.FullPath, active.DirectoryPath)`、`$MS/$MF`は `pane.Targets`(MarkedOrCurrent)→空(カーソル".."時)はフォルダー名/現在フォルダーにfallback、`$MO/$mO`は他方ペインの `pane.Marked`(=PaneState.MarkedEntries、マークのみ・fallbackなし)。`$P`等は `TrimDir`(末尾\除去)。
 
 ## 起動(App)
 - `ExternalToolLauncher.Launch(ExternalTool tool, ToolMacroContext ctx)`(`src/Filer.App/ExternalTools/ExternalToolLauncher.cs`):

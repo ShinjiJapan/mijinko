@@ -87,4 +87,19 @@ public static class FilePreview
     /// </summary>
     public static bool HasRenderedPreview(PreviewKind kind) =>
         kind is PreviewKind.Markdown or PreviewKind.Html or PreviewKind.Code;
+
+    /// <summary>
+    /// プレビュー情報バーに併記するキーヒントを組み立てる。
+    /// 編集可能なら編集キー、レンダリング ⇄ ソースを切り替えられる種別なら切替キーを示す。
+    /// 切替キーの表示は現在の表示の逆(ソース表示中はプレビュー、レンダリング表示中はソース)。
+    /// </summary>
+    public static string PreviewKeyHints(PreviewKind kind, bool sourceMode, string? editKey, string? toggleKey)
+    {
+        var hints = "";
+        if (IsEditable(kind) && !string.IsNullOrEmpty(editKey))
+            hints += $"   ({editKey}:編集)";
+        if (HasRenderedPreview(kind) && !string.IsNullOrEmpty(toggleKey))
+            hints += $"   ({toggleKey}:{(sourceMode ? "プレビュー" : "ソース")})";
+        return hints;
+    }
 }

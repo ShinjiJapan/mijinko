@@ -31,6 +31,8 @@ public partial class PreviewWindow : Window
     private readonly PreviewSizePreferenceStore? _sizePrefs;
     private PreviewKind _kind;
     private bool _isImage;
+    // レンダリング ⇄ ソース表示を切り替えるキー(OnKeyDown の Key.S・HTML 側 JS と一致させる)。
+    private const string SourceToggleKey = "S";
     // Markdown/Html を S キーでソース(テキスト)表示に切り替えているか。
     private bool _sourceMode;
     // WebView2 の初期化(メッセージ購読)済みか。
@@ -53,6 +55,9 @@ public partial class PreviewWindow : Window
     private FileEntry? _dragEntry;
     // 画像表示中、無操作が続いたらマウスカーソルを隠す。マウス移動で再表示し再カウントする。
     private readonly DispatcherTimer _cursorHideTimer;
+    // 直近のカーソル座標。キーボードで画像が差し替わると内容変化で「移動していない MouseMove」が
+    // 発火するため、実際に座標が変わった時だけ再表示する(キーボード操作では再表示しない)。
+    private Point _lastCursorPos;
     // 原寸画像(縮小元)。表示領域サイズに合わせて段階縮小したものを Image へ渡す(スクリーントーンのモアレ対策)。
     private BitmapSource? _originalLeft;
     private BitmapSource? _originalRight;
@@ -93,7 +98,7 @@ public partial class PreviewWindow : Window
         _cursorHideTimer.Tick += (_, _) => HideCursor();
         if (_isImage)
         {
-            MouseMove += (_, _) => OnImageMouseActivity();
+            MouseMove += (_, e) => OnImageMouseActivity(e);
             _cursorHideTimer.Start();
         }
         Closed += (_, _) => _cursorHideTimer.Stop();
@@ -141,9 +146,9 @@ public partial class PreviewWindow : Window
 
         var name = Path.GetFileName(path);
         var info = _sourceMode && IsToggleable(kind) ? $"{name}  [ソース]" : name;
-        // 編集可能なテキストは編集キーのヒントを併記する(キーは設定に追従)。
-        if (FilePreview.IsEditable(kind) && _keyMap.GesturesFor("entry.edit").FirstOrDefault() is { } editKey)
-            info += $"   ({editKey}:編集)";
+        // 編集キー(設定に追従)とソース ⇄ プレビュー切替キー(S)のヒントを併記する。
+        info += FilePreview.PreviewKeyHints(kind, _sourceMode,
+            _keyMap.GesturesFor("entry.edit").FirstOrDefault(), SourceToggleKey);
         InfoText.Text = info;
         Title = $"プレビュー — {name}";
     }
@@ -234,8 +239,11 @@ public partial class PreviewWindow : Window
     }
 
     /// <summary>マウス操作があったらカーソルを再表示し、無操作タイマーを巻き戻す。</summary>
-    private void OnImageMouseActivity()
+    private void OnImageMouseActivity(MouseEventArgs e)
     {
+        var pos = e.GetPosition(this);
+        if (pos == _lastCursorPos) return;   // 座標不変=内容差し替えに伴う擬似 MouseMove。キーボード操作では再表示しない
+        _lastCursorPos = pos;
         if (Cursor == Cursors.None) Cursor = null;   // 既定(矢印)へ戻す
         _cursorHideTimer.Stop();
         _cursorHideTimer.Start();
@@ -548,6 +556,9 @@ public partial class PreviewWindow : Window
         {
             var env = await PreviewWebHost.CreateEnvironmentAsync();
             await MarkdownView.EnsureCoreWebView2Async(env);
+            // WebView2(Chromium)の領域には WPF の Cursor が届かないため、ページ内へ無操作カーソル
+            // 非表示スクリプトを注入する(全フレームに適用。マウス移動でのみ再表示)。
+            await MarkdownView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(CursorAutoHideScript);
             MarkdownView.CoreWebView2.SetVirtualHostNameToFolderMapping(
                 PreviewHost, previewDir, CoreWebView2HostResourceAccessKind.Allow);
             MarkdownView.CoreWebView2.Navigate($"https://{PreviewHost}/{docName}");
@@ -559,6 +570,25 @@ public partial class PreviewWindow : Window
                 "プレビュー", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
+
+    /// <summary>
+    /// 各フレームに注入し、無操作が続いたらカーソルを隠す JS。実マウス移動でのみ再表示し、再カウントする
+    /// (キーボード操作=ScrollPdf の合成キー入力では mousemove が起きないため再表示しない)。
+    /// </summary>
+    private const string CursorAutoHideScript = """
+        (function () {
+            var t;
+            function hide() { document.documentElement.style.cursor = 'none'; }
+            function show() {
+                document.documentElement.style.cursor = '';
+                clearTimeout(t);
+                t = setTimeout(hide, 1500);
+            }
+            window.addEventListener('mousemove', show, true);
+            window.addEventListener('mousedown', show, true);
+            t = setTimeout(hide, 1500);
+        })();
+        """;
 
     /// <summary>
     /// PDF ビューアへ移動キー(↑↓/PgUp/PgDn/Home/End)を DevTools プロトコル経由で送りスクロールさせる。

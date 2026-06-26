@@ -401,6 +401,7 @@ public sealed partial class MainViewModel : ObservableObject
         return new ToolMacroContext(
             cursorName,
             TrimDir(active.DirectoryPath),
+            ToolMacroExpander.ResolveCursorDir(cursor.IsDirectory, cursor.IsParent, cursor.FullPath, active.DirectoryPath),
             TrimDir(Inactive.DirectoryPath),
             TrimDir(Left.DirectoryPath),
             TrimDir(Right.DirectoryPath),

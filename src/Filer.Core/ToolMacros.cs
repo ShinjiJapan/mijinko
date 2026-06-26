@@ -10,6 +10,7 @@ namespace Filer.Core;
 public sealed record ToolMacroContext(
     string CursorName,                          // $F(カーソル項目のファイル名。".." 等は空)
     string ActivePaneDir,                       // $P(自ファイル窓)
+    string ActiveCursorDir,                     // $C(カーソルが実フォルダーならそのパス、それ以外は自窓パス)
     string OtherPaneDir,                        // $O(他ファイル窓)
     string LeftPaneDir,                         // $L(左ファイル窓)
     string RightPaneDir,                        // $R(右ファイル窓)
@@ -22,7 +23,8 @@ public sealed record ToolMacroContext(
 ///
 /// 単一値マクロ(そのまま挿入。引用は利用者がテンプレートに書く):
 ///   $F=ファイル名 / $W=拡張子を除いた名前 / $E=拡張子 /
-///   $P=自窓パス / $O=他窓パス / $L=左窓パス / $R=右窓パス
+///   $P=自窓パス / $C=カーソルのフォルダー(無ければ自窓パス) /
+///   $O=他窓パス / $L=左窓パス / $R=右窓パス
 /// 複数値マクロ(各項目を "" で囲み空白区切り):
 ///   $MS=マーク名一覧 / $MF=マークのフルパス一覧 /
 ///   $MO=他方マークのフルパス一覧(無ければコマンド自体をキャンセル=null) /
@@ -74,6 +76,7 @@ public static class ToolMacroExpander
                     'W' => FileNameParts.Split(ctx.CursorName).Base,
                     'E' => FileNameParts.Split(ctx.CursorName).Extension,
                     'P' => ctx.ActivePaneDir,
+                    'C' => ctx.ActiveCursorDir,
                     'O' => ctx.OtherPaneDir,
                     'L' => ctx.LeftPaneDir,
                     'R' => ctx.RightPaneDir,
@@ -99,6 +102,13 @@ public static class ToolMacroExpander
         if (string.IsNullOrWhiteSpace(expanded)) return null;
         return FirstToken(expanded);
     }
+
+    /// <summary>
+    /// $C(<see cref="ToolMacroContext.ActiveCursorDir"/>)の値を決める。
+    /// カーソルが実フォルダー(".." を除く)ならそのフルパス、そうでなければ自窓パス。いずれも末尾 \ を除く。
+    /// </summary>
+    public static string ResolveCursorDir(bool cursorIsDirectory, bool cursorIsParent, string cursorFullPath, string paneDir)
+        => (cursorIsDirectory && !cursorIsParent ? cursorFullPath : paneDir).TrimEnd('\\');
 
     /// <summary>各項目を "" で囲み空白で連結する。</summary>
     private static string JoinQuoted(IReadOnlyList<string> items) =>

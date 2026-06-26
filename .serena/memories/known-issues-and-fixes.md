@@ -21,6 +21,12 @@
 - **結果**: 初回描画(paint)は件数によらず**約170〜200ms**(=中規模フォルダ並みの体感)。全件反映は4.6万件で約600ms(キーはその後処理されるが部分表示を操作することはない)。タイトルの件数は`PaneViewModel.EntryCount`(モデル全件)で表示。
 - **計測手法**: `FILER_PERFLOG=<パス>`で readSort/refresh/paint/layout/renderIdle をログ。`agent\tmp\verify-clean.ps1`=**UIA完全不使用**のクリーン計測(UIAクライアントが付くとピア処理で数百ms/移動 水増しされるため。ナビは履歴差し替え+H+数字キー)。`verify-trace2.ps1`=dotnet-trace採取、`analyze_trace2.py`=speedscopeのCPU_TIME/UNMANAGEDリーフを実フレームへ帰属して集計。
 
+## [修正済] 大量ファイルのフォルダで列ヘッダークリック等のソートが長時間固まる(2026-06)
+- **症状**: H:\downloads 等の大量ファイルフォルダで列ヘッダークリック/ソート変更すると数秒固まる。フォルダ移動(ナビ)は2段階表示で軽いのにソートだけ重い。
+- **根本原因**: ソートは再読込なしのメモリ内処理(`PaneState.SetSort`=`EntrySorter.Sort` O(n log n))で軽量。真因は `PaneViewModel.SetSort` が `Refresh()` を**既定の `chunked:false`** で呼び、全件を同期で一括UI反映していたこと。ナビ系(Open/NavigateTo/GoToParent)は `chunked:true` で先頭128件即表示+残りLoaded遅延なのに、ソートだけこの2段階表示の恩恵を受けていなかった。加えて `SetSort` は `RunTimed` 計測対象外で `FILER_PERFLOG` にソートが記録されず調査ログも不足していた。
+- **修正**: `PaneViewModel.SetSort` を `RunTimed("SetSort", () => _state.SetSort(...), chunked: true)` に変更。ナビ系と同じ2段階表示にし、同時にperfログ計測対象へ追加。カーソルは `keepPath` で維持され `FirstChunkCount` がカーソル周辺を含めて先頭表示する。
+- **修正ファイル**: `src/Filer.App/ViewModels/PaneViewModel.cs`(`SetSort`)。
+
 ## [修正済] 互換ジャンクション("My Music"等)を開くと強制終了
 - **症状**: ユーザープロファイル直下の `My Music`/`My Pictures`/`My Documents`/`My Videos` を Enter で開くとアプリがクラッシュ。
 - **根本原因**: これらは旧Windows互換用のジャンクション(Hidden+System+ReparsePoint)。実体は開けず `DirectoryLister.Read` が `DirectoryNotFoundException`/`UnauthorizedAccessException` を投げる。Enter(Open)経路が `Run()`(try/catch)を通らず未処理例外でWPFアプリ終了。スペースは無関係。

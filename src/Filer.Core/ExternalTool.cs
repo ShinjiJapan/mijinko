@@ -40,9 +40,9 @@ public static class ExternalTools
         new ExternalTool("vscode", "VSCode", ExternalToolKind.Executable,
             "Code.exe", "$MF", new[] { "V" }),
         new ExternalTool("windows-terminal", "Windows Terminal", ExternalToolKind.Executable,
-            "wt.exe", "-d \"$P\"", new[] { "G" }),
+            "wt.exe", "-d \"$C\"", new[] { "G" }),
         new ExternalTool("git-bash", "Git Bash", ExternalToolKind.Executable,
-            "git-bash.exe", "--cd=\"$P\"", new[] { "B" }),
+            "git-bash.exe", "--cd=\"$C\"", new[] { "B" }),
         new ExternalTool("skimdown", "SkimDown", ExternalToolKind.StoreApp,
             SkimDownAumid, "$MF", new[] { "Shift+K" }),
     };

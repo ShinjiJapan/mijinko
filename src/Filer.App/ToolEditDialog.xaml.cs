@@ -77,7 +77,7 @@ public partial class ToolEditDialog : Window
             TargetHint.Text = "フルパス、または PATH 上の名前(例: Code.exe)。Code.exe / wt.exe / git-bash.exe は既知の場所も自動探索します。";
             BrowseButton.Visibility = Visibility.Visible;
             PickAppButton.Visibility = Visibility.Collapsed;
-            ArgsHint.Text = "例: -d \"$P\"(自窓フォルダー)/ $MF(マーク or カーソルのフルパス)。「マクロ一覧 ?」で全マクロを表示。";
+            ArgsHint.Text = "例: -d \"$C\"(カーソルのフォルダー)/ $MF(マーク or カーソルのフルパス)。「マクロ一覧 ?」で全マクロを表示。";
         }
     }
 
@@ -121,6 +121,7 @@ public partial class ToolEditDialog : Window
         "  $E  カーソル位置のファイル名の拡張子\n\n" +
         "【パス名】(末尾に \\ は付きません)\n" +
         "  $P  自ファイル窓のパス名\n" +
+        "  $C  カーソル位置のフォルダー(フォルダー以外なら自ファイル窓のパス名)\n" +
         "  $O  他ファイル窓のパス名\n" +
         "  $L  左ファイル窓のパス名\n" +
         "  $R  右ファイル窓のパス名\n\n" +

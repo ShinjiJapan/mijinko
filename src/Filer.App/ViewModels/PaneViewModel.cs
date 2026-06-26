@@ -195,10 +195,7 @@ public sealed partial class PaneViewModel : ObservableObject
 
     /// <summary>ソート方法・昇降順を変更して並べ替える(カーソル項目は維持)。</summary>
     public void SetSort(SortKey key, bool descending)
-    {
-        _state.SetSort(key, descending);
-        Refresh();
-    }
+        => RunTimed("SetSort", () => _state.SetSort(key, descending), chunked: true);
 
     public void MoveCursor(int delta)
     {

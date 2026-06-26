@@ -10,12 +10,13 @@ public sealed class ToolMacroExpanderTests
         string otherDir = @"D:\other",
         string leftDir = @"C:\work",
         string rightDir = @"D:\other",
+        string? activeCursorDir = null,
         string[]? activeMarkedNames = null,
         string[]? activeMarkedFull = null,
         string[]? otherMarkedFull = null)
         => new(
             cursorName,
-            activeDir, otherDir, leftDir, rightDir,
+            activeDir, activeCursorDir ?? activeDir, otherDir, leftDir, rightDir,
             activeMarkedNames ?? new[] { cursorName },
             activeMarkedFull ?? new[] { activeDir + "\\" + cursorName },
             otherMarkedFull ?? Array.Empty<string>());
@@ -31,6 +32,30 @@ public sealed class ToolMacroExpanderTests
     public void Expand_SingleValueMacros(string template, string expected)
     {
         Assert.Equal(expected, ToolMacroExpander.Expand(template, Context()));
+    }
+
+    [Fact]
+    public void Expand_CursorDir_OnFolder_IsThatFolder()
+    {
+        // $C: カーソルが実フォルダー上ならそのフォルダー、そうでなければ自窓パス。
+        var onFolder = Context(activeDir: @"C:\work", activeCursorDir: @"C:\work\sub");
+        Assert.Equal(@"C:\work\sub", ToolMacroExpander.Expand("$C", onFolder));
+
+        var onFile = Context(activeDir: @"C:\work");   // activeCursorDir 省略=自窓パス
+        Assert.Equal(@"C:\work", ToolMacroExpander.Expand("$C", onFile));
+    }
+
+    [Theory]
+    // カーソルが実フォルダー: そのフルパス(末尾 \ 除去)。
+    [InlineData(true, false, @"C:\work\sub\", @"C:\work", @"C:\work\sub")]
+    // カーソルがファイル: 自窓パス。
+    [InlineData(false, false, @"C:\work\a.txt", @"C:\work", @"C:\work")]
+    // カーソルが "..": 自窓パス。
+    [InlineData(true, true, @"C:\", @"C:\work", @"C:\work")]
+    public void ResolveCursorDir_PicksFolderOrPaneDir(
+        bool isDir, bool isParent, string cursorFullPath, string paneDir, string expected)
+    {
+        Assert.Equal(expected, ToolMacroExpander.ResolveCursorDir(isDir, isParent, cursorFullPath, paneDir));
     }
 
     [Fact]
