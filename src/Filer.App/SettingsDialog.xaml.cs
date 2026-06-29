@@ -71,6 +71,8 @@ public partial class SettingsDialog : Window
 
         EnableFastSearchCheck.IsChecked = current.EnableElevatedFastSearch;
 
+        SetMarkupModeRadios(current.MarkupPreviewMode);
+
         BindingList.SelectionChanged += (_, _) => UpdateButtonStates();
         ToolList.SelectionChanged += (_, _) => UpdateToolButtonStates();
         // 衝突確認ダイアログや Alt+Tab でフォーカスが離れたらキャプチャを安全に中止する。
@@ -273,7 +275,9 @@ public partial class SettingsDialog : Window
         if (append && current.Any(g => Normalize(g) == Normalize(gesture)))
             return;
 
-        var owner = _map.OwnerOf(gesture);
+        // 衝突確認は同じコンテキスト内のみ(本体とプレビューで同じキーは共存できる)。
+        var context = _map.Actions.FirstOrDefault(a => a.Id == row.ActionId)?.Context ?? KeyBindingContext.Global;
+        var owner = _map.OwnerOf(gesture, context);
         if (owner is not null && owner != row.ActionId)
         {
             var ownerName = ActionLabel(owner);
@@ -524,9 +528,24 @@ public partial class SettingsDialog : Window
             ConfirmMoveCheck.IsChecked == true,
             ConfirmRecycleCheck.IsChecked == true,
             ConfirmPermanentDeleteCheck.IsChecked == true,
-            EnableFastSearchCheck.IsChecked == true);
+            EnableFastSearchCheck.IsChecked == true,
+            SelectedMarkupMode);
         DialogResult = true;
     }
+
+    // ---- プレビュー(Markdown/HTML の初期表示モード) ----
+
+    private void SetMarkupModeRadios(MarkupPreviewMode mode)
+    {
+        MarkupRendered.IsChecked = mode == MarkupPreviewMode.Rendered;
+        MarkupHighlight.IsChecked = mode == MarkupPreviewMode.Highlight;
+        MarkupText.IsChecked = mode == MarkupPreviewMode.Text;
+    }
+
+    private MarkupPreviewMode SelectedMarkupMode =>
+        MarkupRendered.IsChecked == true ? MarkupPreviewMode.Rendered :
+        MarkupText.IsChecked == true ? MarkupPreviewMode.Text :
+        MarkupPreviewMode.Highlight;
 
     // ---- 外観(テーマ) ----
 

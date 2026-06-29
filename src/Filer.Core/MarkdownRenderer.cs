@@ -37,6 +37,10 @@ public static class MarkdownRenderer
 
     /// <summary>既定の表示切替ジェスチャ(設定で上書きしないときの値)。</summary>
     private static readonly string[] DefaultToggleGestures = { "F1" };
+    /// <summary>既定のソース/表示モード切替ジェスチャ(設定で上書きしないときの値)。</summary>
+    private static readonly string[] DefaultSourceToggleGestures = { "S" };
+    /// <summary>既定の「閉じる」ジェスチャ(設定で上書きしないときの値)。</summary>
+    private static readonly string[] DefaultCloseGestures = { "Escape", "Enter" };
 
     /// <summary>Markdown を、既定(ダーク)テーマ CSS と mermaid 初期化を含む完全な HTML 文書へ変換する。</summary>
     public static string ToHtmlDocument(string markdown) => ToHtmlDocument(markdown, ThemeColors.Dark);
@@ -55,9 +59,21 @@ public static class MarkdownRenderer
     /// <summary>
     /// Markdown を、指定テーマの CSS と mermaid 初期化を含む完全な HTML 文書へ変換する。
     /// <paramref name="editGestures"/> は編集モードへ移るキー(設定値)。空なら編集キーを発火させない。
+    /// 表示モード切替(S)と閉じる(Esc/Enter)は既定キーを使う。
     /// </summary>
     public static string ToHtmlDocument(string markdown, ThemeColors colors,
-        IReadOnlyList<string> fullscreenGestures, IReadOnlyList<string> editGestures)
+        IReadOnlyList<string> fullscreenGestures, IReadOnlyList<string> editGestures) =>
+        ToHtmlDocument(markdown, colors, fullscreenGestures, editGestures,
+            DefaultSourceToggleGestures, DefaultCloseGestures);
+
+    /// <summary>
+    /// Markdown を、指定テーマの CSS と mermaid 初期化を含む完全な HTML 文書へ変換する。
+    /// <paramref name="sourceToggleGestures"/> は表示モード切替(レンダリング/ハイライト/テキスト)、
+    /// <paramref name="closeGestures"/> は閉じるキー(いずれも設定値)。
+    /// </summary>
+    public static string ToHtmlDocument(string markdown, ThemeColors colors,
+        IReadOnlyList<string> fullscreenGestures, IReadOnlyList<string> editGestures,
+        IReadOnlyList<string> sourceToggleGestures, IReadOnlyList<string> closeGestures)
     {
         var body = RenderBodyHtml(markdown);
         var sb = new StringBuilder();
@@ -68,7 +84,9 @@ public static class MarkdownRenderer
         sb.Append(body);
         sb.Append("\n</article>\n");
         sb.Append("<script src=\"mermaid.min.js\"></script>\n");
-        sb.Append("<script>\n").Append(BuildScript(colors, fullscreenGestures, editGestures)).Append("\n</script>\n");
+        sb.Append("<script>\n")
+          .Append(BuildScript(colors, fullscreenGestures, editGestures, sourceToggleGestures, closeGestures))
+          .Append("\n</script>\n");
         sb.Append("</body>\n</html>\n");
         return sb.ToString();
     }
@@ -190,14 +208,19 @@ ul, ol {{ padding-left: 1.6em; }}
     // mermaid を明示描画し、図ごとにズーム/全画面ボタンを配線する。
     // Esc/Enter はホスト(WPF)へ通知して閉じる(全画面中は全画面解除を優先)。
     private static string BuildScript(ThemeColors c,
-        IReadOnlyList<string> gestures, IReadOnlyList<string> editGestures) => $@"
+        IReadOnlyList<string> gestures, IReadOnlyList<string> editGestures,
+        IReadOnlyList<string> sourceToggleGestures, IReadOnlyList<string> closeGestures) => $@"
 mermaid.initialize({{ startOnLoad: false, theme: '{(c.IsDark ? "dark" : "default")}', securityLevel: 'loose' }});"
         + MermaidZoomScript
-        + KeydownScript(KeyChordJs.MatchExpression(gestures, "e"), KeyChordJs.MatchExpression(editGestures, "e"));
+        + KeydownScript(
+            KeyChordJs.MatchExpression(gestures, "e"),
+            KeyChordJs.MatchExpression(editGestures, "e"),
+            KeyChordJs.MatchExpression(sourceToggleGestures, "e"),
+            KeyChordJs.MatchExpression(closeGestures, "e"));
 
-    // 表示切替キー(設定値)で cycle-view、編集キー(設定値)で request-edit、S でソース切替、
-    // Esc/Enter で閉じる をホストへ通知する。
-    private static string KeydownScript(string toggleExpr, string editExpr) => $@"
+    // 表示切替キー(設定値)で cycle-view、編集キー(設定値)で request-edit、
+    // 表示モード切替キー(設定値)で toggle-source、閉じるキー(設定値)で close をホストへ通知する。
+    private static string KeydownScript(string toggleExpr, string editExpr, string sourceExpr, string closeExpr) => $@"
 document.addEventListener('keydown', function (e) {{
   if ({toggleExpr}) {{   // 表示形態の切替(全画面 ⇄ ペイン領域)をホストへ通知
     e.preventDefault();
@@ -209,12 +232,12 @@ document.addEventListener('keydown', function (e) {{
     if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage('request-edit');
     return;
   }}
-  if (e.key === 's' || e.key === 'S') {{   // S: レンダリング ⇄ ソース表示をホストへ通知
+  if ({sourceExpr}) {{   // 表示モード切替(レンダリング/ハイライト/テキスト)をホストへ通知
     e.preventDefault();
     if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage('toggle-source');
     return;
   }}
-  if (e.key !== 'Escape' && e.key !== 'Enter') return;
+  if (!({closeExpr})) return;
   if (document.fullscreenElement) return;   // 全画面中の Esc は解除を優先
   if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage('close');
 }});

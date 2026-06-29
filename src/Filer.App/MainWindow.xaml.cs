@@ -150,12 +150,16 @@ public partial class MainWindow : Window
             _actions[KeyBindingActions.ToolPrefix + id] = () => Run(() => Vm.LaunchTool(id));
         }
 
-        // (キー,修飾) → アクション Id。
+        // (キー,修飾) → アクション Id。本体(一覧)で効くのは Global のみ。
+        // プレビュー専用キー(本体キーと重複しうる)はここに載せず、プレビューウィンドウ側で解決する。
         _keyToAction.Clear();
         foreach (var action in map.Actions)
+        {
+            if (action.Context != KeyBindingContext.Global) continue;
             foreach (var gesture in map.GesturesFor(action.Id))
                 if (KeyChordWpf.TryToWpf(gesture, out var key, out var mods))
                     _keyToAction[(key, mods)] = action.Id;
+        }
 
         _normalKeyHelp = KeyHelp.BuildNormal(map);
         _ctrlKeyHelp = KeyHelp.BuildCtrl(map);

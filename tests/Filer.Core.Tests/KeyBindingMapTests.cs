@@ -27,19 +27,68 @@ public sealed class KeyBindingMapTests
     }
 
     [Fact]
-    public void Actions_DefaultGestures_HaveNoConflicts()
+    public void Actions_DefaultGestures_HaveNoConflicts_WithinSameContext()
     {
-        var seen = new Dictionary<string, string>();
+        // 既定ジェスチャの衝突は同じコンテキスト内のみ禁止。コンテキストが違えば重複してよい
+        // (例: 1=お気に入り選択(Global) と 1=1枚⇔2枚表示(Preview))。
+        var seen = new Dictionary<(KeyBindingContext, string), string>();
         foreach (var action in KeyBindingActions.All)
         {
             foreach (var gesture in action.DefaultGestures)
             {
                 KeyChord.TryParse(gesture, out var chord);
-                Assert.False(seen.TryGetValue(chord.Normalized, out var owner),
-                    $"既定ジェスチャ衝突: {gesture} が {owner} と {action.Id} の両方にある");
-                seen[chord.Normalized] = action.Id;
+                var key = (action.Context, chord.Normalized);
+                Assert.False(seen.TryGetValue(key, out var owner),
+                    $"既定ジェスチャ衝突({action.Context}): {gesture} が {owner} と {action.Id} の両方にある");
+                seen[key] = action.Id;
             }
         }
+    }
+
+    [Fact]
+    public void Preview_And_Global_CanShareSameGesture()
+    {
+        // 同じキーを本体(Global)とプレビュー(Preview)で別々の操作に割り当てられる。
+        var map = KeyBindingMap.Build(null);
+        // 1(D1): 本体=お気に入り選択 / プレビュー=1枚⇔2枚表示
+        Assert.Equal("favorite.select", map.TryResolve("D1", KeyBindingContext.Global));
+        Assert.Equal("preview.image.toggleTwoUp", map.TryResolve("D1", KeyBindingContext.Preview));
+        // S: 本体=ソート / プレビュー=表示切替
+        Assert.Equal("sort.select", map.TryResolve("S", KeyBindingContext.Global));
+        Assert.Equal("preview.source.toggle", map.TryResolve("S", KeyBindingContext.Preview));
+        // 既定の TryResolve(=Global)はプレビュー側に影響されない。
+        Assert.Equal("sort.select", map.TryResolve("S"));
+    }
+
+    [Fact]
+    public void Replace_InOneContext_DoesNotStealFromOtherContext()
+    {
+        var map = KeyBindingMap.Build(null);
+        // プレビューの「次の画像」を S に変更しても、本体のソート(S)は残る。
+        map.Replace("preview.image.next", new[] { "S" });
+        Assert.Equal("preview.image.next", map.TryResolve("S", KeyBindingContext.Preview));
+        Assert.Equal("sort.select", map.TryResolve("S", KeyBindingContext.Global));
+    }
+
+    [Fact]
+    public void OwnerOf_IsContextScoped()
+    {
+        var map = KeyBindingMap.Build(null);
+        Assert.Equal("favorite.select", map.OwnerOf("D1", KeyBindingContext.Global));
+        Assert.Equal("preview.image.toggleTwoUp", map.OwnerOf("D1", KeyBindingContext.Preview));
+    }
+
+    [Fact]
+    public void PreviewOverride_RoundTrips()
+    {
+        // プレビュー専用アクションの上書きも差分として保存・復元できる。
+        var map = KeyBindingMap.Build(new Dictionary<string, string[]>
+        {
+            ["preview.image.toggleTwoUp"] = new[] { "W" },
+        });
+        Assert.Equal("preview.image.toggleTwoUp", map.TryResolve("W", KeyBindingContext.Preview));
+        var rebuilt = KeyBindingMap.Build(map.ToOverrides());
+        Assert.Equal("preview.image.toggleTwoUp", rebuilt.TryResolve("W", KeyBindingContext.Preview));
     }
 
     [Fact]

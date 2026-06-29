@@ -31,10 +31,8 @@ public partial class PreviewWindow : Window
     private readonly PreviewSizePreferenceStore? _sizePrefs;
     private PreviewKind _kind;
     private bool _isImage;
-    // レンダリング ⇄ ソース表示を切り替えるキー(OnKeyDown の Key.S・HTML 側 JS と一致させる)。
-    private const string SourceToggleKey = "S";
-    // Markdown/Html を S キーでソース(テキスト)表示に切り替えているか。
-    private bool _sourceMode;
+    // Markdown/Html/Code の表示モード(レンダリング/ハイライト/テキスト)。表示切替キーで巡回する。
+    private MarkupPreviewMode _markupMode;
     // WebView2 の初期化(メッセージ購読)済みか。
     private bool _webViewReady;
     // 仮想ホストにフォルダーをマップ済みか(レンダリング対象が変わるたびに張り替える)。
@@ -82,8 +80,9 @@ public partial class PreviewWindow : Window
         _paneRegion = paneRegion;
         _keyMap = keyMap;
         _sizePrefs = sizePrefs;
-        // Markdown / HTML はソース表示で開く(S キーでレンダリングへ切替)。
-        _sourceMode = FilePreview.InitialSourceMode(FilePreview.ClassifyByExtension(_pane.SelectedItemPath));
+        // Markdown / HTML は設定の初期表示モードで開く(表示切替キーで巡回)。Code はハイライト初期。
+        _markupMode = FilePreview.InitialMode(
+            FilePreview.ClassifyByExtension(_pane.SelectedItemPath), _main.Settings.MarkupPreviewMode);
         ShowCurrent();   // _kind を確定させる
 
         // 表示中の画像をアプリ外へドラッグ&ドロップ(コピー)できるようにする(一覧と同じ挙動)。
@@ -127,17 +126,27 @@ public partial class PreviewWindow : Window
         }
         if (kind == PreviewKind.Markdown)
         {
-            // ソース表示は highlight.js でシンタックスハイライトする。
-            if (_sourceMode) _ = LoadCodeAsync(path); else _ = LoadMarkdownAsync(path);
+            // テキスト=素のプレーン、ハイライト=highlight.js、レンダリング=Markdig→HTML 描画。
+            switch (_markupMode)
+            {
+                case MarkupPreviewMode.Text: LoadText(path); break;
+                case MarkupPreviewMode.Highlight: _ = LoadCodeAsync(path); break;
+                default: _ = LoadMarkdownAsync(path); break;
+            }
         }
         else if (kind == PreviewKind.Html)
         {
-            if (_sourceMode) _ = LoadCodeAsync(path); else _ = LoadHtmlAsync(path);
+            switch (_markupMode)
+            {
+                case MarkupPreviewMode.Text: LoadText(path); break;
+                case MarkupPreviewMode.Highlight: _ = LoadCodeAsync(path); break;
+                default: _ = LoadHtmlAsync(path); break;
+            }
         }
         else if (kind == PreviewKind.Code)
         {
-            // Code はレンダリング自体がハイライト表示。ソースはハイライト無しの素のテキスト。
-            if (_sourceMode) LoadText(path); else _ = LoadCodeAsync(path);
+            // Code はテキスト=素のテキスト、それ以外=ハイライト表示。
+            if (_markupMode == MarkupPreviewMode.Text) LoadText(path); else _ = LoadCodeAsync(path);
         }
         else if (kind == PreviewKind.Pdf)
             _ = LoadPdfAsync(path);
@@ -145,12 +154,30 @@ public partial class PreviewWindow : Window
             LoadText(path);
 
         var name = Path.GetFileName(path);
-        var info = _sourceMode && IsToggleable(kind) ? $"{name}  [ソース]" : name;
-        // 編集キー(設定に追従)とソース ⇄ プレビュー切替キー(S)のヒントを併記する。
-        info += FilePreview.PreviewKeyHints(kind, _sourceMode,
-            _keyMap.GesturesFor("entry.edit").FirstOrDefault(), SourceToggleKey);
-        InfoText.Text = info;
+        InfoText.Text = name + BuildDocHints();
         Title = $"プレビュー — {name}";
+    }
+
+    /// <summary>
+    /// 文書系プレビューのヘッダーへ併記する状態とキーヒント。
+    /// モード切替可能なら現在モード([プレビュー]等)と表示切替キー、編集可能なら編集キー、閉じるキーを示す。
+    /// すべて設定の割り当てに追従する。
+    /// </summary>
+    private string BuildDocHints()
+    {
+        var hints = "";
+        if (FilePreview.IsModeToggleable(_kind))
+            hints += $"  [{FilePreview.ModeLabel(_markupMode)}]";
+
+        var entries = new List<KeyHelp.ContextHelpEntry>();
+        if (FilePreview.IsEditable(_kind))
+            entries.Add(new KeyHelp.ContextHelpEntry("entry.edit", null, "編集"));
+        if (FilePreview.IsModeToggleable(_kind))
+            entries.Add(new KeyHelp.ContextHelpEntry("preview.source.toggle", null, "表示切替"));
+        entries.Add(new KeyHelp.ContextHelpEntry("preview.close", null, "閉じる"));
+
+        var keys = KeyHelp.BuildContext(_keyMap, entries);
+        return string.IsNullOrEmpty(keys) ? hints : $"{hints}    {keys}";
     }
 
     /// <summary>パス(実ファイル/書庫内)から凍結済みビットマップを読み込む。</summary>
@@ -328,8 +355,25 @@ public partial class PreviewWindow : Window
             if (next >= 0)
                 text = _pane.Entries[next].Entry.Name + "  |  " + currentName;
         }
-        InfoText.Text = text;
+        InfoText.Text = text + BuildImageHints();
         Title = $"プレビュー — {currentName}";
+    }
+
+    /// <summary>
+    /// 画像プレビューのヘッダーへ併記するキー操作ヒント(設定の割り当てに追従)。
+    /// 送り/戻し・1枚⇔2枚表示・表示切替(全画面)・閉じる を示す。
+    /// </summary>
+    private string BuildImageHints()
+    {
+        var keys = KeyHelp.BuildContext(_keyMap, new[]
+        {
+            new KeyHelp.ContextHelpEntry("preview.image.prev", null, "前"),
+            new KeyHelp.ContextHelpEntry("preview.image.next", null, "次"),
+            new KeyHelp.ContextHelpEntry("preview.image.toggleTwoUp", null, "1枚⇔2枚"),
+            new KeyHelp.ContextHelpEntry("view.toggleFullscreen", null, "全画面切替"),
+            new KeyHelp.ContextHelpEntry("preview.close", null, "閉じる"),
+        });
+        return string.IsNullOrEmpty(keys) ? "" : $"    {keys}";
     }
 
     private void LoadText(string path)
@@ -416,7 +460,8 @@ public partial class PreviewWindow : Window
         EnsureMermaidScript(previewDir);
         CleanupOldPages(previewDir);
         var html = MarkdownRenderer.ToHtmlDocument(markdown, ThemeManager.CurrentMarkdownColors(),
-            _keyMap.GesturesFor("view.toggleFullscreen"), EditGestures());
+            _keyMap.GesturesFor("view.toggleFullscreen"), EditGestures(),
+            SourceToggleGestures(), CloseGestures());
         // 実ファイルは相対画像(上位 ../ も含む)を解決し、必要なルートを仮想ホストへマップする。書庫内は対象外。
         string? docRoot = null;
         if (!ArchivePath.TrySplit(path, out _, out _) && Path.GetDirectoryName(path) is { } mdDir)
@@ -459,7 +504,8 @@ public partial class PreviewWindow : Window
         var pageName = $"page-{Guid.NewGuid():N}.html";
         File.WriteAllText(Path.Combine(previewDir, pageName),
             CodeRenderer.ToHtmlDocument(code, CodeRenderer.LanguageId(path), ThemeManager.CurrentMarkdownColors(),
-                _keyMap.GesturesFor("view.toggleFullscreen"), EditGestures()));
+                _keyMap.GesturesFor("view.toggleFullscreen"), EditGestures(),
+                SourceToggleGestures(), CloseGestures()));
 
         try
         {
@@ -639,7 +685,7 @@ public partial class PreviewWindow : Window
         {
             case "close": Dispatcher.Invoke(Close); break;
             case "cycle-view": Dispatcher.Invoke(CyclePreviewView); break;
-            case "toggle-source": Dispatcher.Invoke(ToggleSource); break;
+            case "toggle-source": Dispatcher.Invoke(CycleViewMode); break;
             case "request-edit": Dispatcher.Invoke(RequestEdit); break;
         }
     }
@@ -658,11 +704,17 @@ public partial class PreviewWindow : Window
     private IReadOnlyList<string> EditGestures() =>
         FilePreview.IsEditable(_kind) ? _keyMap.GesturesFor("entry.edit") : Array.Empty<string>();
 
-    /// <summary>レンダリング ⇄ ソース表示を切り替える(S キー)。</summary>
-    private void ToggleSource()
+    /// <summary>表示モード切替キー(preview.source.toggle)のジェスチャ(WebView 側 JS と一致させる)。</summary>
+    private IReadOnlyList<string> SourceToggleGestures() => _keyMap.GesturesFor("preview.source.toggle");
+
+    /// <summary>閉じるキー(preview.close)のジェスチャ(WebView 側 JS と一致させる)。</summary>
+    private IReadOnlyList<string> CloseGestures() => _keyMap.GesturesFor("preview.close");
+
+    /// <summary>表示モード(レンダリング/ハイライト/テキスト)を巡回する(表示切替キー)。</summary>
+    private void CycleViewMode()
     {
         if (!IsToggleable(_kind)) return;
-        _sourceMode = !_sourceMode;
+        _markupMode = FilePreview.NextMode(_kind, _markupMode);
         ShowCurrent();
     }
 
@@ -901,20 +953,56 @@ public partial class PreviewWindow : Window
     private static bool IsToggleable(PreviewKind kind) =>
         kind == PreviewKind.Markdown || kind == PreviewKind.Html || kind == PreviewKind.Code;
 
-    /// <summary>TextView(プレーン)を表示中か。プレーンテキスト、または Code のソース表示時。
-    /// Markdown/Html のソースは highlight.js(WebView)で表示するため含めない。</summary>
+    /// <summary>TextView(プレーン)を表示中か。プレーンテキスト、または Markdown/Html/Code のテキストモード時。
+    /// Markdown/Html のハイライトは highlight.js(WebView)で表示するため含めない。</summary>
     private bool ShowingText => _kind == PreviewKind.Text
-        || (_kind == PreviewKind.Code && _sourceMode);
+        || (FilePreview.IsModeToggleable(_kind) && _markupMode == MarkupPreviewMode.Text);
 
     /// <summary>WebView へフォーカスを移さず DevTools 経由でスクロールさせる表示か(PDF / Html レンダリング)。</summary>
     private bool ShowingWebDoc => _kind == PreviewKind.Pdf
-        || (_kind == PreviewKind.Html && !_sourceMode);
+        || (_kind == PreviewKind.Html && _markupMode == MarkupPreviewMode.Rendered);
+
+    /// <summary>
+    /// プレビュー専用コンテキスト(<see cref="KeyBindingContext.Preview"/>)のキー操作を処理する(処理したら true)。
+    /// 閉じる・表示モード切替・画像の送り/戻し/1枚⇔2枚表示。画像操作は画像表示中のみ有効。
+    /// 設定の割り当てに従い、本体(一覧)のキーとは独立に変更できる。
+    /// </summary>
+    private bool TryHandlePreviewAction(Key key, ModifierKeys modifiers)
+    {
+        switch (KeyChordWpf.Resolve(_keyMap, key, modifiers, KeyBindingContext.Preview))
+        {
+            case "preview.close":
+                Close();
+                return true;
+            case "preview.source.toggle" when IsToggleable(_kind):
+                CycleViewMode();
+                return true;
+            case "preview.image.next" when _isImage:
+                StepToAdjacentImage(1);
+                return true;
+            case "preview.image.prev" when _isImage:
+                StepToAdjacentImage(-1);
+                return true;
+            case "preview.image.toggleTwoUp" when _isImage:
+                ToggleTwoUp();
+                return true;
+            default:
+                return false;
+        }
+    }
 
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
         base.OnPreviewKeyDown(e);
 
-        // 設定キーに割り当てられた操作(表示切替・画像のコピー/移動/削除/再読込)を先に処理する。
+        // プレビュー専用キー(閉じる・表示モード切替・画像送り/戻し/1枚⇔2枚)を先に処理する。
+        if (TryHandlePreviewAction(e.Key, Keyboard.Modifiers))
+        {
+            e.Handled = true;
+            return;
+        }
+
+        // 本体と共通の設定キー(表示切替・画像のコピー/移動/削除/再読込)を処理する。
         if (TryHandleBoundAction(e.Key, Keyboard.Modifiers))
         {
             e.Handled = true;
@@ -923,28 +1011,6 @@ public partial class PreviewWindow : Window
 
         switch (e.Key)
         {
-            case Key.Escape:
-            case Key.Enter:
-                Close();
-                e.Handled = true;
-                break;
-
-            case Key.S when IsToggleable(_kind):   // ソース表示中(WPF にフォーカス)からの切替
-                ToggleSource();
-                e.Handled = true;
-                break;
-
-            case Key.Up when _isImage:
-                StepToAdjacentImage(-1);
-                e.Handled = true;
-                break;
-
-            case Key.Down when _isImage:
-            case Key.Space when _isImage:    // スペースも↓と同様に次の画像へ
-                StepToAdjacentImage(1);
-                e.Handled = true;
-                break;
-
             // テキスト(ソース)表示中のスクロール(カーソルは動かさずビューだけ動かす)。
             // Markdown レンダリング表示は WebView2 のネイティブスクロールに委ねる。
             case Key.Up when ShowingText:
@@ -1005,25 +1071,6 @@ public partial class PreviewWindow : Window
 
             case Key.End when ShowingWebDoc:
                 ScrollPdf("End", 35);
-                e.Handled = true;
-                break;
-
-            case Key.D1 when _isImage:       // 1 / End: 横並び2枚表示のトグル
-            case Key.NumPad1 when _isImage:
-            case Key.End when _isImage:
-                ToggleTwoUp();
-                e.Handled = true;
-                break;
-
-            case Key.D4 when _isImage:       // 4: 進む(漫画の左方向。2枚表示時は2枚送り)
-            case Key.NumPad4 when _isImage:
-                StepToAdjacentImage(1);
-                e.Handled = true;
-                break;
-
-            case Key.D6 when _isImage:       // 6: 戻る(漫画の右方向。2枚表示時は2枚送り)
-            case Key.NumPad6 when _isImage:
-                StepToAdjacentImage(-1);
                 e.Handled = true;
                 break;
         }

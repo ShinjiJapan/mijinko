@@ -208,6 +208,36 @@ public sealed class AppSettingsStoreTests
     }
 
     [Fact]
+    public void Load_NoFile_MarkupPreviewModeDefaultsToHighlight()
+    {
+        Assert.Equal(MarkupPreviewMode.Highlight,
+            new AppSettingsStore(TempFile()).Load().MarkupPreviewMode);
+    }
+
+    [Fact]
+    public void SaveThenLoad_RoundTripsMarkupPreviewMode()
+    {
+        var path = TempFile();
+        new AppSettingsStore(path).Save(new AppSettings(
+            new Dictionary<string, string[]>(), Array.Empty<ExternalTool>(),
+            MarkupPreviewMode: MarkupPreviewMode.Rendered));
+
+        Assert.Equal(MarkupPreviewMode.Rendered,
+            new AppSettingsStore(path).Load().MarkupPreviewMode);
+    }
+
+    [Fact]
+    public void Load_UnknownMarkupPreviewMode_DefaultsToHighlight()
+    {
+        var path = TempFile();
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, """{ "markupPreviewMode": "Bogus" }""");
+
+        Assert.Equal(MarkupPreviewMode.Highlight,
+            new AppSettingsStore(path).Load().MarkupPreviewMode);
+    }
+
+    [Fact]
     public void Save_OmitsKeyOverridesIdenticalToDefaults()
     {
         var path = TempFile();

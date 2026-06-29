@@ -108,6 +108,26 @@ public sealed class MarkdownRendererTests
     }
 
     [Fact]
+    public void ToHtmlDocument_EmbedsConfiguredSourceToggleKey_PostsToggleSource()
+    {
+        var html = MarkdownRenderer.ToHtmlDocument("# x", ThemeColors.Dark,
+            new[] { "F1" }, new[] { "I" }, new[] { "Tab" }, new[] { "Escape", "Enter" });
+        Assert.Contains("toggle-source", html);
+        Assert.Contains("e.key === 'Tab'", html);
+        // 既定 S にハードコードしていない。
+        Assert.DoesNotContain("key.toLowerCase() === 's'", html);
+    }
+
+    [Fact]
+    public void ToHtmlDocument_EmbedsConfiguredCloseKey()
+    {
+        var html = MarkdownRenderer.ToHtmlDocument("# x", ThemeColors.Dark,
+            new[] { "F1" }, new[] { "I" }, new[] { "S" }, new[] { "Q" });
+        Assert.Contains("'close'", html);
+        Assert.Contains("key.toLowerCase() === 'q'", html);
+    }
+
+    [Fact]
     public void ToHtmlDocument_EscapesRawHtmlInText()
     {
         // 本文中の生 HTML/スクリプトはそのまま実行されないことの最低限の確認

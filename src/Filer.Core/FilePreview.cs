@@ -1,5 +1,19 @@
 namespace Filer.Core;
 
+/// <summary>
+/// Markdown/HTML/Code プレビューの表示モード。Markdown/HTML は3モードを巡回でき、
+/// Code は <see cref="Highlight"/>(ハイライト)と <see cref="Text"/>(素のテキスト)の2モード。
+/// </summary>
+public enum MarkupPreviewMode
+{
+    /// <summary>レンダリング後のプレビュー(Markdown=HTML描画 / HTML=ブラウザ描画)。</summary>
+    Rendered,
+    /// <summary>シンタックスハイライト表示(highlight.js)。</summary>
+    Highlight,
+    /// <summary>素のテキスト(等幅プレーン)。</summary>
+    Text,
+}
+
 /// <summary>アプリ内プレビューの種別。</summary>
 public enum PreviewKind
 {
@@ -71,11 +85,36 @@ public static class FilePreview
     }
 
     /// <summary>
-    /// プレビュー表示開始時にソース表示で開くか。Markdown / HTML はソースを初期表示とし、
-    /// S キーでレンダリング(プレビュー)へ切り替える。Code はハイライト表示を初期とするため false。
+    /// プレビュー表示開始時の表示モード。Markdown / HTML は設定値(<paramref name="markupDefault"/>)で開く。
+    /// Code はハイライト表示を初期とする。その他はモードを持たない(<see cref="MarkupPreviewMode.Rendered"/>)。
     /// </summary>
-    public static bool InitialSourceMode(PreviewKind kind) =>
-        kind == PreviewKind.Markdown || kind == PreviewKind.Html;
+    public static MarkupPreviewMode InitialMode(PreviewKind kind, MarkupPreviewMode markupDefault) => kind switch
+    {
+        PreviewKind.Markdown or PreviewKind.Html => markupDefault,
+        PreviewKind.Code => MarkupPreviewMode.Highlight,
+        _ => MarkupPreviewMode.Rendered,
+    };
+
+    /// <summary>
+    /// 表示切替キー(S)を押したときの次のモード。Markdown / HTML は
+    /// レンダリング→ハイライト→テキスト→… と巡回。Code はハイライト⇔テキストの2モード。
+    /// その他は変化しない。
+    /// </summary>
+    public static MarkupPreviewMode NextMode(PreviewKind kind, MarkupPreviewMode mode) => kind switch
+    {
+        PreviewKind.Markdown or PreviewKind.Html => (MarkupPreviewMode)(((int)mode + 1) % 3),
+        PreviewKind.Code => mode == MarkupPreviewMode.Text ? MarkupPreviewMode.Highlight : MarkupPreviewMode.Text,
+        _ => mode,
+    };
+
+    /// <summary>表示モードの短いラベル(ヘッダー併記用)。</summary>
+    public static string ModeLabel(MarkupPreviewMode mode) => mode switch
+    {
+        MarkupPreviewMode.Rendered => "プレビュー",
+        MarkupPreviewMode.Highlight => "ハイライト",
+        MarkupPreviewMode.Text => "テキスト",
+        _ => "",
+    };
 
     /// <summary>アプリ内テキストエディターで編集できる種別か(テキスト系のみ。画像・PDF は対象外)。</summary>
     public static bool IsEditable(PreviewKind kind) =>
@@ -88,18 +127,7 @@ public static class FilePreview
     public static bool HasRenderedPreview(PreviewKind kind) =>
         kind is PreviewKind.Markdown or PreviewKind.Html or PreviewKind.Code;
 
-    /// <summary>
-    /// プレビュー情報バーに併記するキーヒントを組み立てる。
-    /// 編集可能なら編集キー、レンダリング ⇄ ソースを切り替えられる種別なら切替キーを示す。
-    /// 切替キーの表示は現在の表示の逆(ソース表示中はプレビュー、レンダリング表示中はソース)。
-    /// </summary>
-    public static string PreviewKeyHints(PreviewKind kind, bool sourceMode, string? editKey, string? toggleKey)
-    {
-        var hints = "";
-        if (IsEditable(kind) && !string.IsNullOrEmpty(editKey))
-            hints += $"   ({editKey}:編集)";
-        if (HasRenderedPreview(kind) && !string.IsNullOrEmpty(toggleKey))
-            hints += $"   ({toggleKey}:{(sourceMode ? "プレビュー" : "ソース")})";
-        return hints;
-    }
+    /// <summary>表示モード(レンダリング/ハイライト/テキスト)を切り替えられる種別か。</summary>
+    public static bool IsModeToggleable(PreviewKind kind) =>
+        kind is PreviewKind.Markdown or PreviewKind.Html or PreviewKind.Code;
 }

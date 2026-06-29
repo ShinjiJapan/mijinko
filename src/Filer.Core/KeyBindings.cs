@@ -1,11 +1,24 @@
 namespace Filer.Core;
 
 /// <summary>
+/// キー割り当ての有効範囲。<see cref="KeyBindingContext.Global"/> はファイラー本体(一覧)で効くキー、
+/// <see cref="KeyBindingContext.Preview"/> はプレビューウィンドウ専用キー。コンテキストが違えば
+/// 同じキーを別々の操作へ割り当てられる(例: 1=お気に入り選択(Global) と 1=1枚⇔2枚表示(Preview))。
+/// </summary>
+public enum KeyBindingContext
+{
+    Global,
+    Preview,
+}
+
+/// <summary>
 /// キーで起動できる操作1つの定義。Id は設定ファイルのキー、DefaultGestures は既定の割り当て。
 /// HelpLabel はフッターのキー操作説明に出す短いラベル(null なら非表示)。
+/// Context は有効範囲(既定は本体=Global。プレビュー専用キーは Preview)。
 /// </summary>
 public sealed record KeyBindingAction(
-    string Id, string DisplayName, string Category, string[] DefaultGestures, string? HelpLabel);
+    string Id, string DisplayName, string Category, string[] DefaultGestures, string? HelpLabel,
+    KeyBindingContext Context = KeyBindingContext.Global);
 
 /// <summary>全キー操作の定義(定義順 = フッター表示順・設定画面の表示順)。</summary>
 public static class KeyBindingActions
@@ -75,6 +88,19 @@ public static class KeyBindingActions
         new("tab.close", "タブを閉じる", "ペイン・タブ", new[] { "Ctrl+W" }, "タブを閉じる"),
         new("tab.prev", "前のタブ", "ペイン・タブ", new[] { "Ctrl+Left" }, "前タブ"),
         new("tab.next", "次のタブ", "ペイン・タブ", new[] { "Ctrl+Right" }, "次タブ"),
+
+        // ---- プレビュー専用(プレビューウィンドウでのみ有効。本体キーと重複してよい) ----
+        // フッターには出さない(HelpLabel=null)。画像ヘッダーのヒントは別途このアクションから引く。
+        new("preview.image.next", "プレビュー: 次の画像へ(漫画送り)", "プレビュー",
+            new[] { "Down", "Space", "D4", "NumPad4" }, null, KeyBindingContext.Preview),
+        new("preview.image.prev", "プレビュー: 前の画像へ(漫画戻し)", "プレビュー",
+            new[] { "Up", "D6", "NumPad6" }, null, KeyBindingContext.Preview),
+        new("preview.image.toggleTwoUp", "プレビュー: 1枚⇔2枚表示の切替", "プレビュー",
+            new[] { "D1", "NumPad1", "End" }, null, KeyBindingContext.Preview),
+        new("preview.source.toggle", "プレビュー: 表示切替(レンダリング/ハイライト/テキスト)", "プレビュー",
+            new[] { "S" }, null, KeyBindingContext.Preview),
+        new("preview.close", "プレビュー: 閉じる", "プレビュー",
+            new[] { "Escape", "Enter" }, null, KeyBindingContext.Preview),
     };
 
     public static KeyBindingAction? Find(string id)
@@ -107,10 +133,29 @@ public sealed class KeyBindingMap
     private readonly IReadOnlyList<KeyBindingAction> _actions;
     // actionId → ジェスチャ標準形のリスト(_actions の定義順で保持)
     private readonly Dictionary<string, List<string>> _gestures = new();
-    // ジェスチャ正規化文字列 → actionId
-    private readonly Dictionary<string, string> _resolve = new();
+    // コンテキストごとの「ジェスチャ正規化文字列 → actionId」。コンテキストが違えば同じキーを別操作へ割り当て可。
+    private readonly Dictionary<KeyBindingContext, Dictionary<string, string>> _resolve = new();
+    // actionId → コンテキスト(衝突判定・解決をコンテキスト内に閉じるため使う)
+    private readonly Dictionary<string, KeyBindingContext> _contextOf = new();
 
-    private KeyBindingMap(IReadOnlyList<KeyBindingAction> actions) => _actions = actions;
+    private KeyBindingMap(IReadOnlyList<KeyBindingAction> actions)
+    {
+        _actions = actions;
+        foreach (var action in actions)
+            _contextOf[action.Id] = action.Context;
+    }
+
+    /// <summary>アクションのコンテキスト(未知の Id は Global)。</summary>
+    private KeyBindingContext ContextOf(string actionId) =>
+        _contextOf.TryGetValue(actionId, out var ctx) ? ctx : KeyBindingContext.Global;
+
+    /// <summary>コンテキストの解決辞書(無ければ作る)。</summary>
+    private Dictionary<string, string> ResolveDict(KeyBindingContext context)
+    {
+        if (!_resolve.TryGetValue(context, out var dict))
+            _resolve[context] = dict = new Dictionary<string, string>();
+        return dict;
+    }
 
     /// <summary>有効なアクション一覧(組み込み + 外部ツール)。設定画面の表示に使う。</summary>
     public IReadOnlyList<KeyBindingAction> Actions => _actions;
@@ -154,13 +199,22 @@ public sealed class KeyBindingMap
             map._gestures[action.Id] = custom ?? ParseAll(action.DefaultGestures);
         }
 
-        // 明示指定されたジェスチャは、明示指定でないアクションの既定から奪う。
-        var taken = new HashSet<string>(
-            explicitIds.SelectMany(id => map._gestures[id]).Select(Normalize));
+        // 明示指定されたジェスチャは、同じコンテキストの明示指定でないアクションの既定から奪う
+        // (コンテキストが違えば奪わない=本体とプレビューで同じキーを共存させる)。
+        var takenByContext = new Dictionary<KeyBindingContext, HashSet<string>>();
+        foreach (var id in explicitIds)
+        {
+            var ctx = map.ContextOf(id);
+            if (!takenByContext.TryGetValue(ctx, out var set))
+                takenByContext[ctx] = set = new HashSet<string>();
+            foreach (var g in map._gestures[id])
+                set.Add(Normalize(g));
+        }
         foreach (var action in actions)
         {
             if (explicitIds.Contains(action.Id)) continue;
-            map._gestures[action.Id].RemoveAll(g => taken.Contains(Normalize(g)));
+            if (takenByContext.TryGetValue(action.Context, out var taken))
+                map._gestures[action.Id].RemoveAll(g => taken.Contains(Normalize(g)));
         }
 
         map.Reindex();
@@ -181,37 +235,52 @@ public sealed class KeyBindingMap
         KeyChord.TryParse(gesture, out var chord) ? chord.Normalized : gesture.ToUpperInvariant();
 
     /// <summary>
-    /// ジェスチャ→アクションの索引を作り直す。重複は定義順で先のアクションが勝ち、
-    /// 索引に載らなかったジェスチャ(他アクションとの衝突・同一アクション内の重複)はリストからも外す。
+    /// ジェスチャ→アクションの索引(コンテキスト別)を作り直す。同一コンテキスト内では重複を許さず、
+    /// 定義順で先のアクションが勝つ。索引に載らなかったジェスチャはリストからも外す。
+    /// コンテキストが違えば同じキーが両方に載る。
     /// </summary>
     private void Reindex()
     {
         _resolve.Clear();
         foreach (var action in _actions)
-            _gestures[action.Id].RemoveAll(g => !_resolve.TryAdd(Normalize(g), action.Id));
+        {
+            var dict = ResolveDict(action.Context);
+            _gestures[action.Id].RemoveAll(g => !dict.TryAdd(Normalize(g), action.Id));
+        }
     }
 
     /// <summary>アクションに割り当て中のジェスチャ(標準形)。</summary>
     public IReadOnlyList<string> GesturesFor(string actionId) =>
         _gestures.TryGetValue(actionId, out var list) ? list : Array.Empty<string>();
 
-    /// <summary>ジェスチャ文字列からアクション Id を引く。未割り当て・解析不能は null。</summary>
-    public string? TryResolve(string gesture) =>
-        KeyChord.TryParse(gesture, out var chord) &&
-        _resolve.TryGetValue(chord.Normalized, out var id) ? id : null;
+    /// <summary>ジェスチャ文字列から本体(Global)コンテキストのアクション Id を引く。</summary>
+    public string? TryResolve(string gesture) => TryResolve(gesture, KeyBindingContext.Global);
 
-    /// <summary>ジェスチャを現在持っているアクション Id(設定画面の衝突確認用)。</summary>
+    /// <summary>ジェスチャ文字列から指定コンテキストのアクション Id を引く。未割り当て・解析不能は null。</summary>
+    public string? TryResolve(string gesture, KeyBindingContext context) =>
+        KeyChord.TryParse(gesture, out var chord) &&
+        _resolve.TryGetValue(context, out var dict) &&
+        dict.TryGetValue(chord.Normalized, out var id) ? id : null;
+
+    /// <summary>ジェスチャを本体(Global)コンテキストで持っているアクション Id。</summary>
     public string? OwnerOf(string gesture) => TryResolve(gesture);
 
-    /// <summary>アクションの割り当てを置き換える。同じジェスチャを持つ他のアクションからは外す。</summary>
+    /// <summary>ジェスチャを指定コンテキストで持っているアクション Id(設定画面の衝突確認用)。</summary>
+    public string? OwnerOf(string gesture, KeyBindingContext context) => TryResolve(gesture, context);
+
+    /// <summary>
+    /// アクションの割り当てを置き換える。同じコンテキストで同じジェスチャを持つ他アクションからは外す
+    /// (コンテキストが違うアクションのキーは奪わない)。
+    /// </summary>
     public void Replace(string actionId, IReadOnlyList<string> gestures)
     {
         if (!_gestures.ContainsKey(actionId)) return;
 
+        var context = ContextOf(actionId);
         var parsed = ParseAll(gestures);
         var taken = new HashSet<string>(parsed.Select(Normalize));
         foreach (var (id, list) in _gestures)
-            if (id != actionId)
+            if (id != actionId && ContextOf(id) == context)
                 list.RemoveAll(g => taken.Contains(Normalize(g)));
 
         _gestures[actionId] = parsed;

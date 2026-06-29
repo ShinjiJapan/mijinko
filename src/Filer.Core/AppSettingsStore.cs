@@ -12,6 +12,7 @@ namespace Filer.Core;
 /// 確認ダイアログを出すか(いずれも既定 true)。
 /// EnableElevatedFastSearch=非管理者起動時に昇格ヘルパー経由の高速検索(MFT 直読み)を使えるようにするか
 /// (既定 true)。false なら高速検索ボタンを出さず UAC も起こさない。管理者起動時はこの設定によらず無関係。
+/// MarkupPreviewMode=Markdown/HTML プレビューの初期表示モード(テキスト/ハイライト/レンダリング。既定はハイライト)。
 /// </summary>
 public sealed record AppSettings(
     IReadOnlyDictionary<string, string[]> KeyBindingOverrides,
@@ -21,7 +22,8 @@ public sealed record AppSettings(
     bool ConfirmMove = true,
     bool ConfirmRecycle = true,
     bool ConfirmPermanentDelete = true,
-    bool EnableElevatedFastSearch = true)
+    bool EnableElevatedFastSearch = true,
+    MarkupPreviewMode MarkupPreviewMode = MarkupPreviewMode.Highlight)
 {
     public static AppSettings CreateDefault() =>
         new(new Dictionary<string, string[]>(), ExternalTools.Defaults());
@@ -68,7 +70,10 @@ public sealed class AppSettingsStore
                 dto.ConfirmMove ?? true,
                 dto.ConfirmRecycle ?? true,
                 dto.ConfirmPermanentDelete ?? true,
-                dto.EnableElevatedFastSearch ?? true);
+                dto.EnableElevatedFastSearch ?? true,
+                // 未知/未設定の値は既定(ハイライト)。
+                Enum.TryParse<MarkupPreviewMode>(dto.MarkupPreviewMode, ignoreCase: true, out var markupMode)
+                    ? markupMode : MarkupPreviewMode.Highlight);
         }
         catch (JsonException)
         {
@@ -88,6 +93,7 @@ public sealed class AppSettingsStore
             ConfirmRecycle = settings.ConfirmRecycle,
             ConfirmPermanentDelete = settings.ConfirmPermanentDelete,
             EnableElevatedFastSearch = settings.EnableElevatedFastSearch,
+            MarkupPreviewMode = settings.MarkupPreviewMode.ToString(),
         };
 
         var dir = Path.GetDirectoryName(_filePath);
@@ -146,6 +152,7 @@ public sealed class AppSettingsStore
         public bool? ConfirmRecycle { get; set; }
         public bool? ConfirmPermanentDelete { get; set; }
         public bool? EnableElevatedFastSearch { get; set; }
+        public string? MarkupPreviewMode { get; set; }
     }
 
     private sealed class ToolDto

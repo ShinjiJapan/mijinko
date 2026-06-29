@@ -68,6 +68,10 @@ public static class CodeRenderer
     /// </summary>
     /// <summary>既定の表示切替ジェスチャ(設定で上書きしないときの値)。</summary>
     private static readonly string[] DefaultToggleGestures = { "F1" };
+    /// <summary>既定のソース/表示モード切替ジェスチャ(設定で上書きしないときの値)。</summary>
+    private static readonly string[] DefaultSourceToggleGestures = { "S" };
+    /// <summary>既定の「閉じる」ジェスチャ(設定で上書きしないときの値)。</summary>
+    private static readonly string[] DefaultCloseGestures = { "Escape", "Enter" };
 
     public static string ToHtmlDocument(string code, string languageId, ThemeColors colors) =>
         ToHtmlDocument(code, languageId, colors, DefaultToggleGestures);
@@ -83,10 +87,23 @@ public static class CodeRenderer
     /// <summary>
     /// ソースを highlight.js で表示する完全な HTML 文書を生成する。
     /// <paramref name="editGestures"/> は編集モードへ移るキー(設定値)。空なら編集キーを発火させない。
+    /// 表示モード切替(S)と閉じる(Esc/Enter)は既定キーを使う。
     /// </summary>
     public static string ToHtmlDocument(
         string code, string languageId, ThemeColors colors,
-        IReadOnlyList<string> fullscreenGestures, IReadOnlyList<string> editGestures)
+        IReadOnlyList<string> fullscreenGestures, IReadOnlyList<string> editGestures) =>
+        ToHtmlDocument(code, languageId, colors, fullscreenGestures, editGestures,
+            DefaultSourceToggleGestures, DefaultCloseGestures);
+
+    /// <summary>
+    /// ソースを highlight.js で表示する完全な HTML 文書を生成する。
+    /// <paramref name="sourceToggleGestures"/> は表示モード切替、<paramref name="closeGestures"/> は
+    /// 閉じるキー(いずれも設定値)。
+    /// </summary>
+    public static string ToHtmlDocument(
+        string code, string languageId, ThemeColors colors,
+        IReadOnlyList<string> fullscreenGestures, IReadOnlyList<string> editGestures,
+        IReadOnlyList<string> sourceToggleGestures, IReadOnlyList<string> closeGestures)
     {
         var langClass = string.IsNullOrEmpty(languageId) ? string.Empty : $" class=\"language-{languageId}\"";
         var theme = colors.IsDark ? "hl-dark.css" : "hl-light.css";
@@ -102,7 +119,9 @@ public static class CodeRenderer
         sb.Append("<script src=\"powershell.min.js\"></script>\n");
         sb.Append("<script src=\"dos.min.js\"></script>\n");
         sb.Append("<script src=\"apex.min.js\"></script>\n");
-        sb.Append("<script>\n").Append(BuildScript(fullscreenGestures, editGestures)).Append("\n</script>\n");
+        sb.Append("<script>\n")
+          .Append(BuildScript(fullscreenGestures, editGestures, sourceToggleGestures, closeGestures))
+          .Append("\n</script>\n");
         sb.Append("</body>\n</html>\n");
         return sb.ToString();
     }
@@ -116,9 +135,10 @@ pre code.hljs {{ font-family: 'Consolas', 'MS Gothic', monospace; font-size: 13p
 ";
 
     // highlight.js を走らせ、表示切替キー(設定値)=表示形態切替・編集キー(設定値)=編集モード・
-    // S=ソース切替・Esc/Enter=閉じる をホストへ通知する。
+    // 表示モード切替キー(設定値)=ソース切替・閉じるキー(設定値)=閉じる をホストへ通知する。
     private static string BuildScript(
-        IReadOnlyList<string> gestures, IReadOnlyList<string> editGestures) => $@"
+        IReadOnlyList<string> gestures, IReadOnlyList<string> editGestures,
+        IReadOnlyList<string> sourceToggleGestures, IReadOnlyList<string> closeGestures) => $@"
 hljs.highlightAll();
 document.addEventListener('keydown', function (e) {{
   if ({KeyChordJs.MatchExpression(gestures, "e")}) {{   // 表示形態の切替(全画面 ⇄ ペイン領域)をホストへ通知
@@ -131,12 +151,12 @@ document.addEventListener('keydown', function (e) {{
     if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage('request-edit');
     return;
   }}
-  if (e.key === 's' || e.key === 'S') {{   // S: レンダリング ⇄ ソース表示をホストへ通知
+  if ({KeyChordJs.MatchExpression(sourceToggleGestures, "e")}) {{   // 表示モード切替をホストへ通知
     e.preventDefault();
     if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage('toggle-source');
     return;
   }}
-  if (e.key !== 'Escape' && e.key !== 'Enter') return;
+  if (!({KeyChordJs.MatchExpression(closeGestures, "e")})) return;
   if (window.chrome && window.chrome.webview) window.chrome.webview.postMessage('close');
 }});
 ";

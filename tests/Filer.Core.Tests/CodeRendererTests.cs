@@ -74,6 +74,16 @@ public sealed class CodeRendererTests
     }
 
     [Fact]
+    public void ToHtmlDocument_EmbedsConfiguredSourceToggleKey_PostsToggleSource()
+    {
+        var html = CodeRenderer.ToHtmlDocument("x", "csharp", ThemeColors.Dark,
+            new[] { "F1" }, new[] { "I" }, new[] { "Tab" }, new[] { "Escape", "Enter" });
+        Assert.Contains("toggle-source", html);
+        Assert.Contains("e.key === 'Tab'", html);
+        Assert.DoesNotContain("key.toLowerCase() === 's'", html);
+    }
+
+    [Fact]
     public void ToHtmlDocument_DarkTheme_ReferencesDarkStylesheet()
     {
         var dark = CodeRenderer.ToHtmlDocument("x", "", ThemeColors.Dark);

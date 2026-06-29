@@ -93,25 +93,65 @@ public sealed class FilePreviewTests
         Assert.Equal(PreviewKind.None, FilePreview.ClassifyByExtension(path));
     }
 
-    // Markdown / HTML はデフォルトでソース表示(S でレンダリングへ切替)。
+    // Markdown / HTML は設定の初期表示モードで開く。
+    [Theory]
+    [InlineData(PreviewKind.Markdown, MarkupPreviewMode.Rendered)]
+    [InlineData(PreviewKind.Markdown, MarkupPreviewMode.Highlight)]
+    [InlineData(PreviewKind.Markdown, MarkupPreviewMode.Text)]
+    [InlineData(PreviewKind.Html, MarkupPreviewMode.Rendered)]
+    [InlineData(PreviewKind.Html, MarkupPreviewMode.Text)]
+    public void InitialMode_MarkdownAndHtml_UsesSetting(PreviewKind kind, MarkupPreviewMode setting)
+    {
+        Assert.Equal(setting, FilePreview.InitialMode(kind, setting));
+    }
+
+    // Code は設定によらずハイライト初期。
+    [Theory]
+    [InlineData(MarkupPreviewMode.Rendered)]
+    [InlineData(MarkupPreviewMode.Text)]
+    public void InitialMode_Code_AlwaysHighlight(MarkupPreviewMode setting)
+    {
+        Assert.Equal(MarkupPreviewMode.Highlight, FilePreview.InitialMode(PreviewKind.Code, setting));
+    }
+
+    // Markdown / HTML の表示切替はレンダリング→ハイライト→テキスト→… と巡回する。
     [Theory]
     [InlineData(PreviewKind.Markdown)]
     [InlineData(PreviewKind.Html)]
-    public void InitialSourceMode_MarkdownAndHtml_DefaultsToSource(PreviewKind kind)
+    public void NextMode_MarkdownAndHtml_CyclesThreeModes(PreviewKind kind)
     {
-        Assert.True(FilePreview.InitialSourceMode(kind));
+        Assert.Equal(MarkupPreviewMode.Highlight, FilePreview.NextMode(kind, MarkupPreviewMode.Rendered));
+        Assert.Equal(MarkupPreviewMode.Text, FilePreview.NextMode(kind, MarkupPreviewMode.Highlight));
+        Assert.Equal(MarkupPreviewMode.Rendered, FilePreview.NextMode(kind, MarkupPreviewMode.Text));
     }
 
-    // Code はデフォルトでハイライト表示(レンダリング)。その他もレンダリング側を初期表示とする。
-    [Theory]
-    [InlineData(PreviewKind.Code)]
-    [InlineData(PreviewKind.Text)]
-    [InlineData(PreviewKind.Image)]
-    [InlineData(PreviewKind.Pdf)]
-    [InlineData(PreviewKind.None)]
-    public void InitialSourceMode_Others_DefaultsToRendered(PreviewKind kind)
+    // Code はハイライト⇔テキストの2モードを行き来する。
+    [Fact]
+    public void NextMode_Code_TogglesHighlightAndText()
     {
-        Assert.False(FilePreview.InitialSourceMode(kind));
+        Assert.Equal(MarkupPreviewMode.Text, FilePreview.NextMode(PreviewKind.Code, MarkupPreviewMode.Highlight));
+        Assert.Equal(MarkupPreviewMode.Highlight, FilePreview.NextMode(PreviewKind.Code, MarkupPreviewMode.Text));
+    }
+
+    [Theory]
+    [InlineData(MarkupPreviewMode.Rendered, "プレビュー")]
+    [InlineData(MarkupPreviewMode.Highlight, "ハイライト")]
+    [InlineData(MarkupPreviewMode.Text, "テキスト")]
+    public void ModeLabel_ReturnsJapaneseLabel(MarkupPreviewMode mode, string expected)
+    {
+        Assert.Equal(expected, FilePreview.ModeLabel(mode));
+    }
+
+    [Theory]
+    [InlineData(PreviewKind.Markdown, true)]
+    [InlineData(PreviewKind.Html, true)]
+    [InlineData(PreviewKind.Code, true)]
+    [InlineData(PreviewKind.Text, false)]
+    [InlineData(PreviewKind.Image, false)]
+    [InlineData(PreviewKind.Pdf, false)]
+    public void IsModeToggleable_OnlyMarkupKinds(PreviewKind kind, bool expected)
+    {
+        Assert.Equal(expected, FilePreview.IsModeToggleable(kind));
     }
 
     // テキスト系(Text/Markdown/Code/Html)はエディターで編集可能。
@@ -153,57 +193,5 @@ public sealed class FilePreviewTests
     public void HasRenderedPreview_OtherKinds_ReturnsFalse(PreviewKind kind)
     {
         Assert.False(FilePreview.HasRenderedPreview(kind));
-    }
-
-    // ソース表示中の Markdown/Html は編集キーと「プレビューへ切替」キーを併記する。
-    [Theory]
-    [InlineData(PreviewKind.Markdown)]
-    [InlineData(PreviewKind.Html)]
-    public void PreviewKeyHints_SourceMode_ShowsEditAndPreviewToggle(PreviewKind kind)
-    {
-        var hints = FilePreview.PreviewKeyHints(kind, sourceMode: true, editKey: "I", toggleKey: "S");
-        Assert.Equal("   (I:編集)   (S:プレビュー)", hints);
-    }
-
-    // レンダリング表示中の Markdown/Html は「ソースへ切替」キーを示す。
-    [Theory]
-    [InlineData(PreviewKind.Markdown)]
-    [InlineData(PreviewKind.Html)]
-    public void PreviewKeyHints_RenderedMode_ShowsSourceToggle(PreviewKind kind)
-    {
-        var hints = FilePreview.PreviewKeyHints(kind, sourceMode: false, editKey: "I", toggleKey: "S");
-        Assert.Equal("   (I:編集)   (S:ソース)", hints);
-    }
-
-    // Code はレンダリング(ハイライト)を初期表示。編集キーと「ソースへ切替」キーを示す。
-    [Fact]
-    public void PreviewKeyHints_Code_ShowsEditAndToggle()
-    {
-        var hints = FilePreview.PreviewKeyHints(PreviewKind.Code, sourceMode: false, editKey: "I", toggleKey: "S");
-        Assert.Equal("   (I:編集)   (S:ソース)", hints);
-    }
-
-    // プレーンテキストは編集キーのみ(切替対象でない)。
-    [Fact]
-    public void PreviewKeyHints_Text_ShowsEditOnly()
-    {
-        var hints = FilePreview.PreviewKeyHints(PreviewKind.Text, sourceMode: false, editKey: "I", toggleKey: "S");
-        Assert.Equal("   (I:編集)", hints);
-    }
-
-    // 編集不可かつ切替不可(画像など)はヒント無し。
-    [Fact]
-    public void PreviewKeyHints_Image_ReturnsEmpty()
-    {
-        var hints = FilePreview.PreviewKeyHints(PreviewKind.Image, sourceMode: false, editKey: "I", toggleKey: "S");
-        Assert.Equal("", hints);
-    }
-
-    // 編集キー未割当でも切替キーは示す。
-    [Fact]
-    public void PreviewKeyHints_NoEditKey_ShowsToggleOnly()
-    {
-        var hints = FilePreview.PreviewKeyHints(PreviewKind.Markdown, sourceMode: true, editKey: null, toggleKey: "S");
-        Assert.Equal("   (S:プレビュー)", hints);
     }
 }

@@ -44,6 +44,13 @@ public static class KeyChordWpf
         return pressed is null ? null : map.TryResolve(pressed);
     }
 
+    /// <summary>押されたキーを指定コンテキストで解決し、割り当て中のアクション Id を返す(無ければ null)。</summary>
+    public static string? Resolve(KeyBindingMap map, Key key, ModifierKeys modifiers, KeyBindingContext context)
+    {
+        var pressed = FromKeyEvent(key, modifiers);
+        return pressed is null ? null : map.TryResolve(pressed, context);
+    }
+
     /// <summary>修飾キーそのもの(Ctrl/Shift/Alt/Win)か。</summary>
     public static bool IsModifier(Key key) => key is
         Key.LeftCtrl or Key.RightCtrl or
