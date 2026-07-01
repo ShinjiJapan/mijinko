@@ -110,17 +110,25 @@ public sealed class FileTransferServiceTests : IDisposable
     }
 
     [Fact]
-    public void BuildPlan_ExistingTarget_Throws()
+    public void BuildPlan_ExistingTarget_RecordsConflict()
     {
-        var src = MakeFile("a.txt", "x");
+        var src = MakeFile("a.txt", "new");
         var dest = MakeDir("dest");
         File.WriteAllText(Path.Combine(dest, "a.txt"), "old");
 
-        Assert.Throws<IOException>(() => FileTransferService.BuildPlan(new[] { src }, dest, FileTransferKind.Copy));
+        var plan = FileTransferService.BuildPlan(new[] { src }, dest, FileTransferKind.Copy);
+
+        Assert.True(plan.HasConflicts);
+        Assert.True(plan.IsEmpty);   // 衝突は解決するまで実行対象に入らない
+        var c = Assert.Single(plan.Conflicts);
+        Assert.Equal(src, c.SourcePath);
+        Assert.Equal(Path.Combine(dest, "a.txt"), c.ExistingPath);
+        Assert.Equal(3, c.SourceSize);
+        Assert.Equal(3, c.ExistingSize);
     }
 
     [Fact]
-    public void BuildPlan_CopyDirectoryOntoExisting_MergesAndDetectsFileConflict()
+    public void BuildPlan_CopyDirectoryOntoExisting_MergesAndRecordsFileConflict()
     {
         MakeFile("srcdir/a.txt", "x");
         MakeFile("srcdir/b.txt", "y");
@@ -130,7 +138,118 @@ public sealed class FileTransferServiceTests : IDisposable
         Directory.CreateDirectory(Path.Combine(dest, "srcdir"));
         File.WriteAllText(Path.Combine(dest, "srcdir", "a.txt"), "old");
 
-        Assert.Throws<IOException>(() => FileTransferService.BuildPlan(new[] { src }, dest, FileTransferKind.Copy));
+        var plan = FileTransferService.BuildPlan(new[] { src }, dest, FileTransferKind.Copy);
+
+        Assert.True(plan.HasConflicts);
+        var c = Assert.Single(plan.Conflicts);
+        Assert.Equal(Path.Combine(dest, "srcdir", "a.txt"), c.ExistingPath);
+        Assert.Equal(1, plan.TotalFiles);   // 衝突しない b.txt だけが対象
+    }
+
+    [Fact]
+    public void ResolveConflicts_Overwrite_ReplacesExistingAndKeepsSourceTimestamps()
+    {
+        var src = MakeFile("a.txt", "new");
+        var dest = MakeDir("dest");
+        var existing = Path.Combine(dest, "a.txt");
+        File.WriteAllText(existing, "old-longer");
+        var modified = new DateTime(2021, 6, 7, 8, 9, 10, DateTimeKind.Utc);
+        File.SetLastWriteTimeUtc(src, modified);
+
+        var plan = FileTransferService.BuildPlan(new[] { src }, dest, FileTransferKind.Copy);
+        FileTransferService.ResolveConflicts(plan, _ => new ConflictDecision(ConflictAction.Overwrite));
+        Run(plan, FileTransferKind.Copy);
+
+        Assert.False(plan.HasConflicts);
+        Assert.Equal("new", File.ReadAllText(existing));
+        Assert.Equal(modified, File.GetLastWriteTimeUtc(existing));
+        Assert.True(File.Exists(src));   // コピーなので元は残る
+    }
+
+    [Fact]
+    public void ResolveConflicts_Skip_LeavesExistingUntouched()
+    {
+        var src = MakeFile("a.txt", "new");
+        var dest = MakeDir("dest");
+        var existing = Path.Combine(dest, "a.txt");
+        File.WriteAllText(existing, "old");
+
+        var plan = FileTransferService.BuildPlan(new[] { src }, dest, FileTransferKind.Copy);
+        FileTransferService.ResolveConflicts(plan, _ => new ConflictDecision(ConflictAction.Skip));
+
+        Assert.True(plan.IsEmpty);
+        Run(plan, FileTransferKind.Copy);
+        Assert.Equal("old", File.ReadAllText(existing));
+    }
+
+    [Fact]
+    public void ResolveConflicts_Rename_CreatesNewFileAndKeepsExisting()
+    {
+        var src = MakeFile("a.txt", "new");
+        var dest = MakeDir("dest");
+        var existing = Path.Combine(dest, "a.txt");
+        File.WriteAllText(existing, "old");
+
+        var plan = FileTransferService.BuildPlan(new[] { src }, dest, FileTransferKind.Copy);
+        FileTransferService.ResolveConflicts(plan, _ => new ConflictDecision(ConflictAction.Rename, "a (2).txt"));
+        Run(plan, FileTransferKind.Copy);
+
+        Assert.Equal("old", File.ReadAllText(existing));
+        Assert.Equal("new", File.ReadAllText(Path.Combine(dest, "a (2).txt")));
+    }
+
+    [Fact]
+    public void ResolveConflicts_NewerOnly_OverwritesWhenSourceNewer_SkipsWhenOlder()
+    {
+        var dest = MakeDir("dest");
+
+        // 転送元が新しい → 上書きされる
+        var newer = MakeFile("newer.txt", "fresh");
+        var existingNewer = Path.Combine(dest, "newer.txt");
+        File.WriteAllText(existingNewer, "stale");
+        File.SetLastWriteTimeUtc(newer, new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        File.SetLastWriteTimeUtc(existingNewer, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        // 転送元が古い → 何もしない
+        var older = MakeFile("older.txt", "stale-src");
+        var existingOlder = Path.Combine(dest, "older.txt");
+        File.WriteAllText(existingOlder, "keep");
+        File.SetLastWriteTimeUtc(older, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        File.SetLastWriteTimeUtc(existingOlder, new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+
+        var plan = FileTransferService.BuildPlan(new[] { newer, older }, dest, FileTransferKind.Copy);
+        FileTransferService.ResolveConflicts(plan, _ => new ConflictDecision(ConflictAction.NewerOnly));
+        Run(plan, FileTransferKind.Copy);
+
+        Assert.Equal("fresh", File.ReadAllText(existingNewer));
+        Assert.Equal("keep", File.ReadAllText(existingOlder));
+    }
+
+    [Fact]
+    public void ResolveConflicts_MoveOverwrite_ReplacesAndRemovesSource()
+    {
+        var src = MakeFile("a.txt", "new");
+        var dest = MakeDir("dest");
+        var existing = Path.Combine(dest, "a.txt");
+        File.WriteAllText(existing, "old");
+
+        var plan = FileTransferService.BuildPlan(new[] { src }, dest, FileTransferKind.Move);
+        FileTransferService.ResolveConflicts(plan, _ => new ConflictDecision(ConflictAction.Overwrite));
+        Run(plan, FileTransferKind.Move);
+
+        Assert.Equal("new", File.ReadAllText(existing));
+        Assert.False(File.Exists(src));   // 移動なので元は消える
+    }
+
+    [Fact]
+    public void MakeUniqueName_AppendsNumberUntilFree()
+    {
+        var dir = MakeDir("u");
+        File.WriteAllText(Path.Combine(dir, "a.txt"), "");
+        File.WriteAllText(Path.Combine(dir, "a (2).txt"), "");
+
+        Assert.Equal("b.txt", FileTransferService.MakeUniqueName(dir, "b.txt"));
+        Assert.Equal("a (3).txt", FileTransferService.MakeUniqueName(dir, "a.txt"));
     }
 
     [Fact]
@@ -161,13 +280,16 @@ public sealed class FileTransferServiceTests : IDisposable
     }
 
     [Fact]
-    public void BuildPlan_MoveOntoExistingTarget_Throws()
+    public void BuildPlan_MoveOntoExistingTarget_RecordsConflict()
     {
         var src = MakeFile("a.txt", "x");
         var dest = MakeDir("dest");
         File.WriteAllText(Path.Combine(dest, "a.txt"), "old");
 
-        Assert.Throws<IOException>(() => FileTransferService.BuildPlan(new[] { src }, dest, FileTransferKind.Move));
+        var plan = FileTransferService.BuildPlan(new[] { src }, dest, FileTransferKind.Move);
+
+        Assert.True(plan.HasConflicts);
+        Assert.True(plan.IsEmpty);
     }
 
     [Fact]

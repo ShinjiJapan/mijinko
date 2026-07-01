@@ -3,6 +3,22 @@ namespace Filer.Core;
 /// <summary>コピー/移動の種別。</summary>
 public enum FileTransferKind { Copy, Move }
 
+/// <summary>転送先に同名ファイルがあったときの処理。</summary>
+public enum ConflictAction
+{
+    /// <summary>既存ファイルを上書きする。</summary>
+    Overwrite,
+    /// <summary>転送元が新しいときだけ上書きする(古い・同じなら何もしない)。</summary>
+    NewerOnly,
+    /// <summary>別名で転送する(<see cref="ConflictDecision.NewName"/> を使用)。</summary>
+    Rename,
+    /// <summary>この項目は転送しない。</summary>
+    Skip,
+}
+
+/// <summary>1件の同名衝突に対する処理の決定。Rename のときは NewName に変更後のファイル名を入れる。</summary>
+public sealed record ConflictDecision(ConflictAction Action, string? NewName = null);
+
 /// <summary>転送の進捗。全体バイト/件数に対する完了量と、処理中の項目名。</summary>
 public sealed record FileTransferProgress(
     long TotalBytes,
@@ -13,17 +29,60 @@ public sealed record FileTransferProgress(
 
 internal enum TransferItemKind { CopyFile, FastMove, ExtractArchive }
 
-internal sealed record TransferItem(TransferItemKind Kind, string Src, string Dest, long Size);
+internal sealed record TransferItem(
+    TransferItemKind Kind, string Src, string Dest, long Size,
+    bool Overwrite = false, bool DeleteSourceAfter = false);
+
+/// <summary>
+/// 転送先に同名ファイルが既にある衝突。表示用にコピー元/コピー先の更新日時・サイズを保持する。
+/// 解決方法は <see cref="FileTransferService.ResolveConflicts"/> に渡すリゾルバが決める。
+/// </summary>
+public sealed class TransferConflict
+{
+    /// <summary>転送元ファイルのフルパス。</summary>
+    public string SourcePath { get; }
+    /// <summary>転送先に既に存在する同名ファイルのフルパス。</summary>
+    public string ExistingPath { get; }
+    /// <summary>転送元の最終更新日時(UTC)。</summary>
+    public DateTime SourceModifiedUtc { get; }
+    /// <summary>既存ファイルの最終更新日時(UTC)。</summary>
+    public DateTime ExistingModifiedUtc { get; }
+    /// <summary>転送元のバイト数。</summary>
+    public long SourceSize { get; }
+    /// <summary>既存ファイルのバイト数。</summary>
+    public long ExistingSize { get; }
+
+    /// <summary>移動時、転送成功後に転送元を削除するか。</summary>
+    internal bool DeleteSourceAfter { get; }
+
+    internal TransferConflict(string source, string existing, bool deleteSourceAfter)
+    {
+        SourcePath = source;
+        ExistingPath = existing;
+        SourceModifiedUtc = File.GetLastWriteTimeUtc(source);
+        ExistingModifiedUtc = File.GetLastWriteTimeUtc(existing);
+        SourceSize = new FileInfo(source).Length;
+        ExistingSize = new FileInfo(existing).Length;
+        DeleteSourceAfter = deleteSourceAfter;
+    }
+}
 
 /// <summary>
 /// 転送計画。実行前に列挙したファイル一覧・作成すべきディレクトリ・総量を保持する。
-/// 計画段階で同名衝突を検出して全件拒否するため、実行は半端な状態を残さない。
+/// 計画段階で検出した同名衝突は <see cref="Conflicts"/> に積み、リゾルバで解決してから実行する。
 /// </summary>
 public sealed class FileTransferPlan
 {
     internal List<string> DirsToCreate { get; } = new();
     internal List<TransferItem> Items { get; } = new();
-    internal List<string> SourcesToDeleteAfter { get; } = new();
+    internal List<string> SourceTreesToPrune { get; } = new();
+    private readonly List<TransferConflict> _conflicts = new();
+
+    /// <summary>計画作成時に検出した同名衝突。<see cref="FileTransferService.ResolveConflicts"/> で解決する。</summary>
+    public IReadOnlyList<TransferConflict> Conflicts => _conflicts;
+
+    /// <summary>未解決の同名衝突があるか。</summary>
+    public bool HasConflicts => _conflicts.Count > 0;
 
     /// <summary>コピー対象の総バイト数(高速移動・書庫抽出は0として加算)。</summary>
     public long TotalBytes { get; internal set; }
@@ -31,8 +90,11 @@ public sealed class FileTransferPlan
     /// <summary>処理対象の総件数。</summary>
     public int TotalFiles { get; internal set; }
 
-    /// <summary>対象が無ければ真。</summary>
+    /// <summary>実行対象が無ければ真(衝突の有無は含まない。先に <see cref="HasConflicts"/> を解決すること)。</summary>
     public bool IsEmpty => Items.Count == 0;
+
+    internal void AddConflict(TransferConflict c) => _conflicts.Add(c);
+    internal void ClearConflicts() => _conflicts.Clear();
 }
 
 /// <summary>
@@ -47,12 +109,12 @@ public static class FileTransferService
 
     /// <summary>
     /// sources(ファイル/ディレクトリ/書庫内項目)を destDir 配下へ転送する計画を作る。
-    /// 同一ディレクトリへのコピー・自身/配下への転送・同名衝突は例外で拒否する(フォールバックしない)。
+    /// 同一ディレクトリへのコピー・自身/配下への転送・種別不一致は例外で拒否する(フォールバックしない)。
+    /// 転送先の同名ファイルは例外にせず <see cref="FileTransferPlan.Conflicts"/> に積む。
     /// </summary>
     public static FileTransferPlan BuildPlan(IReadOnlyList<string> sources, string destDir, FileTransferKind kind)
     {
         var plan = new FileTransferPlan();
-        var conflicts = new List<string>();
 
         foreach (var src in sources)
         {
@@ -66,49 +128,50 @@ public static class FileTransferService
 
             var name = NameOf(src);
             var target = Path.Combine(destDir, name);
+            var deleteSource = kind == FileTransferKind.Move;
 
             if (Directory.Exists(src))
             {
                 EnsureNotSameOrUnder(src, target);
+                if (File.Exists(target))
+                    throw new IOException($"転送先に同名のファイルがあるためフォルダーを転送できません: {name}");
 
-                if (kind == FileTransferKind.Move)
+                if (deleteSource && !Directory.Exists(target) && IsSameVolume(src, destDir))
                 {
-                    if (Exists(target)) { conflicts.Add(name); continue; }
-                    if (IsSameVolume(src, destDir))
-                    {
-                        plan.Items.Add(new TransferItem(TransferItemKind.FastMove, src, target, 0));
-                        plan.TotalFiles++;
-                    }
-                    else
-                    {
-                        EnumerateDirectory(src, target, plan, conflicts, checkConflicts: false);
-                        plan.SourcesToDeleteAfter.Add(src);
-                    }
+                    plan.Items.Add(new TransferItem(TransferItemKind.FastMove, src, target, 0));
+                    plan.TotalFiles++;
                 }
                 else
                 {
-                    EnumerateDirectory(src, target, plan, conflicts, checkConflicts: true);
+                    // 既存フォルダーへのマージ、またはボリュームを跨ぐ移動。中身を1ファイルずつ転送する。
+                    EnumerateDirectory(src, target, plan, deleteSource);
+                    if (deleteSource) plan.SourceTreesToPrune.Add(src);
                 }
             }
             else if (File.Exists(src))
             {
                 if (kind == FileTransferKind.Copy && PathEquals(Path.GetDirectoryName(src)!, destDir))
                     throw new IOException($"同一ディレクトリへはコピーできません: {src}");
-
-                if (Exists(target)) { conflicts.Add(name); continue; }
+                if (Directory.Exists(target))
+                    throw new IOException($"転送先に同名のフォルダーがあるためファイルを転送できません: {name}");
 
                 var size = new FileInfo(src).Length;
-                if (kind == FileTransferKind.Move && IsSameVolume(src, destDir))
+                if (File.Exists(target))
+                {
+                    plan.AddConflict(new TransferConflict(src, target, deleteSource));
+                }
+                else if (deleteSource && IsSameVolume(src, destDir))
                 {
                     plan.Items.Add(new TransferItem(TransferItemKind.FastMove, src, target, size));
+                    plan.TotalFiles++;
+                    plan.TotalBytes += size;
                 }
                 else
                 {
-                    plan.Items.Add(new TransferItem(TransferItemKind.CopyFile, src, target, size));
-                    if (kind == FileTransferKind.Move) plan.SourcesToDeleteAfter.Add(src);
+                    plan.Items.Add(new TransferItem(TransferItemKind.CopyFile, src, target, size, false, deleteSource));
+                    plan.TotalFiles++;
+                    plan.TotalBytes += size;
                 }
-                plan.TotalFiles++;
-                plan.TotalBytes += size;
             }
             else
             {
@@ -116,10 +179,54 @@ public static class FileTransferService
             }
         }
 
-        if (conflicts.Count > 0)
-            throw new IOException("転送先に同名の項目が既に存在します:\n" + string.Join("\n", conflicts));
-
         return plan;
+    }
+
+    /// <summary>
+    /// 計画中の同名衝突を、各衝突につき resolver の決定で解決し実行対象へ反映する。
+    /// resolver が <see cref="OperationCanceledException"/> を投げると解決を中断する(計画は破棄して使わない)。
+    /// </summary>
+    public static void ResolveConflicts(FileTransferPlan plan, Func<TransferConflict, ConflictDecision> resolver)
+    {
+        foreach (var c in plan.Conflicts)
+        {
+            var decision = resolver(c);
+            switch (decision.Action)
+            {
+                case ConflictAction.Skip:
+                    break;
+
+                case ConflictAction.NewerOnly:
+                    if (c.SourceModifiedUtc > c.ExistingModifiedUtc)
+                        AddResolvedCopy(plan, c.SourcePath, c.ExistingPath, c.SourceSize, overwrite: true, c.DeleteSourceAfter);
+                    break;
+
+                case ConflictAction.Overwrite:
+                    AddResolvedCopy(plan, c.SourcePath, c.ExistingPath, c.SourceSize, overwrite: true, c.DeleteSourceAfter);
+                    break;
+
+                case ConflictAction.Rename:
+                    var newName = decision.NewName
+                        ?? throw new ArgumentException("Rename の決定には NewName が必要です。");
+                    var dest = Path.Combine(Path.GetDirectoryName(c.ExistingPath)!, newName);
+                    AddResolvedCopy(plan, c.SourcePath, dest, c.SourceSize, overwrite: false, c.DeleteSourceAfter);
+                    break;
+            }
+        }
+        plan.ClearConflicts();
+    }
+
+    /// <summary>dir 直下で name と衝突しない一意な名前を返す(「name (2).ext」形式で採番)。</summary>
+    public static string MakeUniqueName(string dir, string name)
+    {
+        if (!Exists(Path.Combine(dir, name))) return name;
+        var stem = Path.GetFileNameWithoutExtension(name);
+        var ext = Path.GetExtension(name);
+        for (var i = 2; ; i++)
+        {
+            var candidate = $"{stem} ({i}){ext}";
+            if (!Exists(Path.Combine(dir, candidate))) return candidate;
+        }
     }
 
     /// <summary>計画を実行する。進捗通知とキャンセルに対応。途中失敗時は処理中ファイルを残さない。</summary>
@@ -141,11 +248,11 @@ public static class FileTransferService
             progress?.Report(new FileTransferProgress(plan.TotalBytes, done, plan.TotalFiles, doneFiles, name));
         }
 
-        void CopyFile(TransferItem item, string name)
+        void CopyBytesTo(TransferItem item, string destPath, string name)
         {
             var buffer = new byte[BufferSize];
             using var input = new FileStream(item.Src, FileMode.Open, FileAccess.Read, FileShare.Read, BufferSize);
-            var output = new FileStream(item.Dest, FileMode.CreateNew, FileAccess.Write, FileShare.None, BufferSize);
+            var output = new FileStream(destPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, BufferSize);
             try
             {
                 int read;
@@ -161,12 +268,29 @@ public static class FileTransferService
             catch
             {
                 output.Dispose();
-                TryDelete(item.Dest);   // 中断・失敗で半端なファイルを残さない
+                TryDelete(destPath);   // 中断・失敗で半端なファイルを残さない
                 throw;
             }
             // だいなファイラー等と同様、コピー後のファイル日時はコピー元を引き継ぐ(現在日時にしない)。
-            File.SetCreationTimeUtc(item.Dest, File.GetCreationTimeUtc(item.Src));
-            File.SetLastWriteTimeUtc(item.Dest, File.GetLastWriteTimeUtc(item.Src));
+            File.SetCreationTimeUtc(destPath, File.GetCreationTimeUtc(item.Src));
+            File.SetLastWriteTimeUtc(destPath, File.GetLastWriteTimeUtc(item.Src));
+        }
+
+        void CopyFile(TransferItem item, string name)
+        {
+            if (item.Overwrite && File.Exists(item.Dest))
+            {
+                // 既存を残したまま一時ファイルへ書き、完了後に置換する(失敗で既存を失わない)。
+                var tmp = item.Dest + ".filer-tmp";
+                TryDelete(tmp);
+                CopyBytesTo(item, tmp, name);
+                File.Move(tmp, item.Dest, overwrite: true);
+            }
+            else
+            {
+                CopyBytesTo(item, item.Dest, name);
+            }
+            if (item.DeleteSourceAfter) File.Delete(item.Src);
         }
 
         Report("", force: true);
@@ -198,18 +322,24 @@ public static class FileTransferService
             Report(name, force: true);
         }
 
-        if (kind == FileTransferKind.Move)
-            foreach (var src in plan.SourcesToDeleteAfter)
-            {
-                if (Directory.Exists(src)) Directory.Delete(src, recursive: true);
-                else if (File.Exists(src)) File.Delete(src);
-            }
+        // 移動で中身を1ファイルずつ移したフォルダーは、空になった元フォルダーだけを後始末する。
+        // (スキップした項目が残っていれば空にならず、元フォルダーは残る)
+        foreach (var tree in plan.SourceTreesToPrune)
+            PruneEmptyDirs(tree);
 
         progress?.Report(new FileTransferProgress(plan.TotalBytes, done, plan.TotalFiles, plan.TotalFiles, ""));
     }
 
+    private static void AddResolvedCopy(
+        FileTransferPlan plan, string src, string dest, long size, bool overwrite, bool deleteSource)
+    {
+        plan.Items.Add(new TransferItem(TransferItemKind.CopyFile, src, dest, size, overwrite, deleteSource));
+        plan.TotalFiles++;
+        plan.TotalBytes += size;
+    }
+
     private static void EnumerateDirectory(
-        string srcDir, string targetDir, FileTransferPlan plan, List<string> conflicts, bool checkConflicts)
+        string srcDir, string targetDir, FileTransferPlan plan, bool deleteSource)
     {
         plan.DirsToCreate.Add(targetDir);
         foreach (var sub in Directory.GetDirectories(srcDir, "*", SearchOption.AllDirectories))
@@ -219,13 +349,28 @@ public static class FileTransferService
         {
             var rel = Path.GetRelativePath(srcDir, file);
             var dest = Path.Combine(targetDir, rel);
-            if (checkConflicts && File.Exists(dest)) { conflicts.Add(rel); continue; }
+            if (File.Exists(dest))
+            {
+                plan.AddConflict(new TransferConflict(file, dest, deleteSource));
+                continue;
+            }
 
             var size = new FileInfo(file).Length;
-            plan.Items.Add(new TransferItem(TransferItemKind.CopyFile, file, dest, size));
+            plan.Items.Add(new TransferItem(TransferItemKind.CopyFile, file, dest, size, false, deleteSource));
             plan.TotalFiles++;
             plan.TotalBytes += size;
         }
+    }
+
+    private static void PruneEmptyDirs(string root)
+    {
+        if (!Directory.Exists(root)) return;
+        foreach (var dir in Directory.GetDirectories(root, "*", SearchOption.AllDirectories)
+                     .OrderByDescending(d => d.Length))
+            if (Directory.Exists(dir) && !Directory.EnumerateFileSystemEntries(dir).Any())
+                Directory.Delete(dir);
+        if (!Directory.EnumerateFileSystemEntries(root).Any())
+            Directory.Delete(root);
     }
 
     private static void TryDelete(string path)

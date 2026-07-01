@@ -2075,7 +2075,25 @@ public partial class MainWindow : Window
             MessageBox.Show(this, ex.Message, "操作に失敗しました", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
-        if (plan.IsEmpty) return;
+
+        // 転送先に同名ファイルがあれば、だいなファイラー風のダイアログで1件ずつ処理を決める。
+        if (plan.HasConflicts)
+        {
+            try
+            {
+                vm.ResolveTransferConflicts(plan, CreateConflictResolver());
+            }
+            catch (OperationCanceledException)
+            {
+                FocusActiveList();
+                return;
+            }
+        }
+        if (plan.IsEmpty)
+        {
+            FocusActiveList();
+            return;
+        }
 
         var title = kind == FileTransferKind.Copy ? "コピー" : "移動";
         var dialog = new TransferProgressDialog(title, (progress, token) => vm.ExecuteTransfer(plan, kind, progress, token))
@@ -2090,6 +2108,51 @@ public partial class MainWindow : Window
 
         if (dialog.Error is { } error)
             MessageBox.Show(this, error.Message, "操作に失敗しました", MessageBoxButton.OK, MessageBoxImage.Warning);
+    }
+
+    /// <summary>
+    /// 同名衝突を1件ずつダイアログで解決するリゾルバを作る。「すべてのファイルに適用」が選ばれたら
+    /// 以降は同じ処理を自動適用する。Rename は転送先ごとに一意な名前を採番する。キャンセルは中断。
+    /// </summary>
+    private Func<TransferConflict, ConflictDecision> CreateConflictResolver()
+    {
+        ConflictAction? remembered = null;
+        var takenPerDir = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+
+        string UniqueRename(TransferConflict c, string? preferred)
+        {
+            var dir = Path.GetDirectoryName(c.ExistingPath)!;
+            if (!takenPerDir.TryGetValue(dir, out var taken))
+                takenPerDir[dir] = taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            var baseName = preferred ?? Path.GetFileName(c.ExistingPath);
+            var stem = Path.GetFileNameWithoutExtension(baseName);
+            var ext = Path.GetExtension(baseName);
+            var name = baseName;
+            for (var i = 2; taken.Contains(name) || File.Exists(Path.Combine(dir, name)) || Directory.Exists(Path.Combine(dir, name)); i++)
+                name = $"{stem} ({i}){ext}";
+            taken.Add(name);
+            return name;
+        }
+
+        return conflict =>
+        {
+            if (remembered is { } act)
+                return act == ConflictAction.Rename
+                    ? new ConflictDecision(ConflictAction.Rename, UniqueRename(conflict, null))
+                    : new ConflictDecision(act);
+
+            var dlg = new OverwriteDialog(conflict) { Owner = this };
+            if (dlg.ShowDialog() != true)
+                throw new OperationCanceledException();
+
+            var action = dlg.SelectedAction;
+            if (dlg.ApplyToAll) remembered = action;
+
+            return action == ConflictAction.Rename
+                ? new ConflictDecision(ConflictAction.Rename, UniqueRename(conflict, dlg.NewName))
+                : new ConflictDecision(action);
+        };
     }
 
     /// <summary>

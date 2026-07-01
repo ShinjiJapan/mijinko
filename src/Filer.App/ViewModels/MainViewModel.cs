@@ -152,6 +152,10 @@ public sealed partial class MainViewModel : ObservableObject
         IProgress<FileTransferProgress> progress, CancellationToken token)
         => FileTransferService.Execute(plan, kind, progress, token);
 
+    /// <summary>転送先に同名ファイルがある衝突を resolver の決定で解決する(UI スレッドから呼ぶ)。</summary>
+    public void ResolveTransferConflicts(FileTransferPlan plan, Func<TransferConflict, ConflictDecision> resolver)
+        => FileTransferService.ResolveConflicts(plan, resolver);
+
     /// <summary>アクティブ側の対象を非アクティブ側のディレクトリへ移動する。書庫内項目は不可。</summary>
     public void MoveToOther()
     {

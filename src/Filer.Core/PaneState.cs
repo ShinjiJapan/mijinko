@@ -241,10 +241,9 @@ public sealed class PaneState
         Filter = string.Empty;          // フォルダー移動でフィルターは解除する
         Entries = _allEntries;
 
-        // 移動先フォルダーの記憶があれば優先して復元。無ければ明示指定(親へ戻る等)、それも無ければ先頭。
-        var targetName = _cursorMemory.TryGetValue(path, out var remembered)
-            ? remembered
-            : cursorOnName;
+        // 親へ戻る等の明示指定を最優先。無ければ移動先フォルダーの記憶を復元、それも無ければ先頭。
+        var targetName = cursorOnName
+            ?? (_cursorMemory.TryGetValue(path, out var remembered) ? remembered : null);
         var index = targetName is null ? 0 : IndexOfName(targetName);
         CursorIndex = index < 0 ? 0 : index;
         MoveCursorTo(CursorIndex);

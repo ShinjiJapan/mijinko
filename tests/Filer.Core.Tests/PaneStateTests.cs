@@ -166,6 +166,18 @@ public class PaneStateTests
     }
 
     [Fact]
+    public void GoToParent_PrefersChildWeCameFrom_OverRememberedCursor()
+    {
+        var pane = new PaneState(BuildTree(), @"C:\work");
+        pane.MoveCursorTo(2);                 // "a.txt" — 親のカーソルを子以外に置く
+        pane.NavigateTo(@"C:\work\sub");      // お気に入り等で子へ直接移動(親の記憶は a.txt)
+        pane.GoToParent();                    // 親へ戻る
+
+        Assert.Equal(@"C:\work", pane.CurrentPath);
+        Assert.Equal("sub", pane.Current.Name); // 記憶(a.txt)より「来た子」を優先
+    }
+
+    [Fact]
     public void Open_OnParentEntry_GoesUp()
     {
         var pane = new PaneState(BuildTree(), @"C:\work\sub");
